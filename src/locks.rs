@@ -31,14 +31,14 @@ use std::collections::HashMap;
 #[derive(Debug, Clone, Copy, PartialEq, Eq, PartialOrd, Ord, Serialize, Deserialize)]
 #[serde(rename_all = "SCREAMING_SNAKE_CASE")]
 pub enum LockMode {
-    AccessShare,           // 1 — SELECT
-    RowShare,              // 2 — SELECT FOR UPDATE
-    RowExclusive,          // 3 — DML
-    ShareUpdateExclusive,  // 4 — VACUUM, CREATE INDEX CONCURRENTLY phase 1
-    Share,                 // 5 — CREATE INDEX (blocking)
-    ShareRowExclusive,     // 6 — CREATE TRIGGER
-    Exclusive,             // 7 — rare
-    AccessExclusive,       // 8 — ALTER TABLE, DROP, TRUNCATE
+    AccessShare,          // 1 — SELECT
+    RowShare,             // 2 — SELECT FOR UPDATE
+    RowExclusive,         // 3 — DML
+    ShareUpdateExclusive, // 4 — VACUUM, CREATE INDEX CONCURRENTLY phase 1
+    Share,                // 5 — CREATE INDEX (blocking)
+    ShareRowExclusive,    // 6 — CREATE TRIGGER
+    Exclusive,            // 7 — rare
+    AccessExclusive,      // 8 — ALTER TABLE, DROP, TRUNCATE
 }
 
 impl LockMode {
@@ -157,7 +157,11 @@ impl LockSimulator {
 
         let timeline = self.build_timeline(&lock_events);
         let total_secs = timeline.last().map(|s| s.offset_secs).unwrap_or(0);
-        let max_lock_hold_secs = lock_events.iter().map(|e| e.estimated_hold_secs).max().unwrap_or(0);
+        let max_lock_hold_secs = lock_events
+            .iter()
+            .map(|e| e.estimated_hold_secs)
+            .max()
+            .unwrap_or(0);
 
         let lock_risk = self.assess_lock_risk(&lock_events, max_lock_hold_secs);
 

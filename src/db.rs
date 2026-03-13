@@ -95,7 +95,11 @@ pub mod connector {
         let indexes = fetch_indexes(&client).await?;
         let foreign_keys = fetch_foreign_keys(&client).await?;
 
-        Ok(LiveSchema { tables, indexes, foreign_keys })
+        Ok(LiveSchema {
+            tables,
+            indexes,
+            foreign_keys,
+        })
     }
 
     // ── table sizes & row counts ──────────────────────────────────────────

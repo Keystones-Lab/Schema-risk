@@ -24,7 +24,10 @@ pub struct RiskEngine {
 
 impl RiskEngine {
     pub fn new(row_counts: std::collections::HashMap<String, u64>) -> Self {
-        Self { row_counts, live_schema: None }
+        Self {
+            row_counts,
+            live_schema: None,
+        }
     }
 
     /// Create an engine seeded from a live database snapshot.
@@ -37,16 +40,15 @@ impl RiskEngine {
         for (name, meta) in &live.tables {
             row_counts.insert(name.clone(), meta.estimated_rows.max(0) as u64);
         }
-        Self { row_counts, live_schema: Some(live) }
+        Self {
+            row_counts,
+            live_schema: Some(live),
+        }
     }
 
     /// Run every rule against the parsed statements and build a graph, then
     /// return the final report for the file.
-    pub fn analyze(
-        &self,
-        file: &str,
-        statements: &[ParsedStatement],
-    ) -> MigrationReport {
+    pub fn analyze(&self, file: &str, statements: &[ParsedStatement]) -> MigrationReport {
         let mut graph = SchemaGraph::new();
         let mut operations: Vec<DetectedOperation> = Vec::new();
         let mut fk_impacts: Vec<FkImpact> = Vec::new();
@@ -173,7 +175,9 @@ impl RiskEngine {
     ) -> Vec<DetectedOperation> {
         match stmt {
             // ── DROP TABLE  ──────────────────────────────────────────────────
-            ParsedStatement::DropTable { tables, cascade, .. } => {
+            ParsedStatement::DropTable {
+                tables, cascade, ..
+            } => {
                 let mut ops = Vec::new();
                 for table in tables {
                     // Who references this table?
@@ -186,11 +190,8 @@ impl RiskEngine {
 
                     if ref_count > 0 {
                         score += (ref_count as u32) * 20;
-                        extra = format!(
-                            " Referenced by {} table(s): {}",
-                            ref_count,
-                            refs.join(", ")
-                        );
+                        extra =
+                            format!(" Referenced by {} table(s): {}", ref_count, refs.join(", "));
                         for r in &refs {
                             fk_impacts.push(FkImpact {
                                 constraint_name: format!("{}_fk", r),
@@ -353,7 +354,11 @@ impl RiskEngine {
             }
 
             // ── DROP INDEX ───────────────────────────────────────────────────
-            ParsedStatement::DropIndex { names, concurrently, .. } => {
+            ParsedStatement::DropIndex {
+                names,
+                concurrently,
+                ..
+            } => {
                 let score: u32 = if *concurrently { 2 } else { 10 };
                 let warning = if !concurrently {
                     Some(format!(
@@ -417,7 +422,11 @@ impl RiskEngine {
             }
 
             // ── DROP CONSTRAINT ──────────────────────────────────────────────
-            ParsedStatement::AlterTableDropConstraint { table, constraint, cascade } => {
+            ParsedStatement::AlterTableDropConstraint {
+                table,
+                constraint,
+                cascade,
+            } => {
                 let score = if *cascade { 25 } else { 10 };
                 vec![DetectedOperation {
                     description: format!(
@@ -542,7 +551,9 @@ impl RiskEngine {
                         tables: vec![],
                         risk_level: RiskLevel::Medium,
                         score: 30,
-                        warning: Some("Unmodelled DDL — manual review required before running".to_string()),
+                        warning: Some(
+                            "Unmodelled DDL — manual review required before running".to_string(),
+                        ),
                         acquires_lock: true,
                         index_rebuild: false,
                     }]
@@ -566,27 +577,19 @@ impl RiskEngine {
     ) -> Vec<String> {
         let mut rec = Vec::new();
 
-        let has_drop_table = ops
-            .iter()
-            .any(|o| o.description.contains("DROP TABLE"));
-        let has_drop_column = ops
-            .iter()
-            .any(|o| o.description.contains("DROP COLUMN"));
+        let has_drop_table = ops.iter().any(|o| o.description.contains("DROP TABLE"));
+        let has_drop_column = ops.iter().any(|o| o.description.contains("DROP COLUMN"));
         let has_type_change = ops
             .iter()
             .any(|o| o.description.contains("TYPE ") && o.acquires_lock);
-        let has_index_without_concurrent = ops.iter().any(|o| {
-            o.description.contains("CREATE") && o.index_rebuild && o.acquires_lock
-        });
+        let has_index_without_concurrent = ops
+            .iter()
+            .any(|o| o.description.contains("CREATE") && o.index_rebuild && o.acquires_lock);
         let has_not_null_no_default = ops
             .iter()
             .any(|o| o.description.contains("NOT NULL (no default)"));
-        let has_rename = ops
-            .iter()
-            .any(|o| o.description.contains("RENAME"));
-        let has_cascade = ops
-            .iter()
-            .any(|o| o.description.contains("CASCADE"));
+        let has_rename = ops.iter().any(|o| o.description.contains("RENAME"));
+        let has_cascade = ops.iter().any(|o| o.description.contains("CASCADE"));
 
         if has_drop_table || has_drop_column {
             rec.push("Deploy in two phases: first deploy app code that no longer reads the column/table, then drop it in a later migration".to_string());
@@ -615,7 +618,10 @@ impl RiskEngine {
 
         if overall >= RiskLevel::High {
             rec.push("Schedule this migration during a low-traffic maintenance window".to_string());
-            rec.push("Test this migration on a staging environment with production-sized data".to_string());
+            rec.push(
+                "Test this migration on a staging environment with production-sized data"
+                    .to_string(),
+            );
         }
 
         if overall >= RiskLevel::Medium {
@@ -634,7 +640,9 @@ impl RiskEngine {
         }
 
         if rec.is_empty() {
-            rec.push("No specific recommendations – this migration looks safe to deploy".to_string());
+            rec.push(
+                "No specific recommendations – this migration looks safe to deploy".to_string(),
+            );
         }
 
         // Live-schema-aware additions
@@ -659,13 +667,8 @@ impl RiskEngine {
     // Lock duration heuristic
     // ─────────────────────────────────────────────────────────────────────
 
-    fn estimate_lock_seconds(
-        &self,
-        ops: &[DetectedOperation],
-        _tables: &[String],
-    ) -> Option<u64> {
-        let locking_ops: Vec<&DetectedOperation> =
-            ops.iter().filter(|o| o.acquires_lock).collect();
+    fn estimate_lock_seconds(&self, ops: &[DetectedOperation], _tables: &[String]) -> Option<u64> {
+        let locking_ops: Vec<&DetectedOperation> = ops.iter().filter(|o| o.acquires_lock).collect();
 
         if locking_ops.is_empty() {
             return None;

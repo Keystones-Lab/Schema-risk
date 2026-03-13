@@ -7,9 +7,7 @@
 //!   4. CI report markdown generation
 //!   5. Auto-fix SQL rewriting (apply_fixes idempotency)
 
-use schema_risk::{
-    ci, engine::RiskEngine, parser, recommendation, types::RiskLevel,
-};
+use schema_risk::{ci, engine::RiskEngine, parser, recommendation, types::RiskLevel};
 use std::collections::HashMap;
 
 // ─────────────────────────────────────────────────────────────────────────────
@@ -35,7 +33,10 @@ fn test_non_concurrent_index_is_detected() {
     let fixes = recommendation::suggest_fixes(&stmts, &HashMap::new());
 
     let r01 = fixes.iter().find(|f| f.rule_id == "R01");
-    assert!(r01.is_some(), "R01 (non-concurrent index) should be detected");
+    assert!(
+        r01.is_some(),
+        "R01 (non-concurrent index) should be detected"
+    );
     let fix = r01.unwrap();
     assert_eq!(fix.severity, recommendation::FixSeverity::Blocking);
     assert!(fix.auto_fixable, "R01 should be auto-fixable");
@@ -146,7 +147,9 @@ fn sample_report() -> schema_risk::types::MigrationReport {
     analyze("CREATE INDEX idx_tmp ON users(name); ALTER TABLE orders ADD COLUMN total NUMERIC NOT NULL;")
 }
 
-fn sample_fixes(sql: &str) -> std::collections::HashMap<String, Vec<recommendation::FixSuggestion>> {
+fn sample_fixes(
+    sql: &str,
+) -> std::collections::HashMap<String, Vec<recommendation::FixSuggestion>> {
     let stmts = parse(sql);
     let fixes = recommendation::suggest_fixes(&stmts, &HashMap::new());
     let mut map = std::collections::HashMap::new();
@@ -259,10 +262,7 @@ fn test_apply_fixes_preserves_concurrent_index_unchanged() {
     let fixes = recommendation::suggest_fixes(&stmts, &HashMap::new());
     let result = recommendation::apply_fixes(already_correct, &fixes);
     // Should not duplicate CONCURRENTLY
-    let count = result
-        .to_uppercase()
-        .matches("CONCURRENTLY")
-        .count();
+    let count = result.to_uppercase().matches("CONCURRENTLY").count();
     assert_eq!(
         count, 1,
         "CONCURRENTLY must appear exactly once, got {count} times in: {result}"
@@ -324,8 +324,5 @@ fn test_alter_column_type_detected() {
     let stmts = parse(sql);
     let fixes = recommendation::suggest_fixes(&stmts, &HashMap::new());
     let r07 = fixes.iter().find(|f| f.rule_id == "R07");
-    assert!(
-        r07.is_some(),
-        "R07 (ALTER COLUMN TYPE) should be detected"
-    );
+    assert!(r07.is_some(), "R07 (ALTER COLUMN TYPE) should be detected");
 }

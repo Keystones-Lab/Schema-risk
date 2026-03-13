@@ -4,10 +4,7 @@
 //! the tool never needs to import sqlparser types directly.
 
 use crate::error::Result;
-use sqlparser::ast::{
-    AlterTableOperation, ColumnOption, ObjectType, Statement,
-    TableConstraint,
-};
+use sqlparser::ast::{AlterTableOperation, ColumnOption, ObjectType, Statement, TableConstraint};
 use sqlparser::dialect::PostgreSqlDialect;
 use sqlparser::parser::Parser;
 
@@ -195,7 +192,13 @@ pub fn parse(sql: &str) -> Result<Vec<ParsedStatement>> {
             Err(_) => {
                 // B-01: belt-and-suspenders — check the raw segment for unsafe keywords
                 let raw_note = check_unsafe_keywords(trimmed)
-                    .map(|note| format!("{} [{}]", trimmed.chars().take(80).collect::<String>(), note))
+                    .map(|note| {
+                        format!(
+                            "{} [{}]",
+                            trimmed.chars().take(80).collect::<String>(),
+                            note
+                        )
+                    })
                     .unwrap_or_else(|| trimmed.chars().take(80).collect());
                 results.push(ParsedStatement::Other { raw: raw_note });
             }
@@ -226,7 +229,9 @@ fn split_into_segments(sql: &str) -> Vec<String> {
         if chars[i] == '$' {
             // Try to read a dollar tag: $tag$ or $$
             let mut j = i + 1;
-            while j < len && chars[j] != '$' && chars[j].is_alphanumeric() || (j < len && chars[j] == '_') {
+            while j < len && chars[j] != '$' && chars[j].is_alphanumeric()
+                || (j < len && chars[j] == '_')
+            {
                 j += 1;
             }
             if j < len && chars[j] == '$' {
@@ -357,10 +362,7 @@ fn lower_to_parsed(stmt: Statement) -> ParsedStatement {
                         foreign_keys.push(ForeignKeyInfo {
                             columns: fk_cols.iter().map(|c| c.to_string()).collect(),
                             ref_table: foreign_table.to_string(),
-                            ref_columns: referred_columns
-                                .iter()
-                                .map(|c| c.to_string())
-                                .collect(),
+                            ref_columns: referred_columns.iter().map(|c| c.to_string()).collect(),
                             on_delete_cascade: on_delete
                                 .as_ref()
                                 .map(|a| a.to_string().to_uppercase().contains("CASCADE"))
@@ -407,7 +409,11 @@ fn lower_to_parsed(stmt: Statement) -> ParsedStatement {
             if_exists,
             ..
         } => {
-            let raw = names.iter().map(|n| n.to_string()).collect::<Vec<_>>().join(", ");
+            let raw = names
+                .iter()
+                .map(|n| n.to_string())
+                .collect::<Vec<_>>()
+                .join(", ");
             // Check if CONCURRENTLY keyword appears; sqlparser puts it in name
             let concurrently = raw.to_uppercase().contains("CONCURRENTLY");
             ParsedStatement::DropIndex {
@@ -420,11 +426,7 @@ fn lower_to_parsed(stmt: Statement) -> ParsedStatement {
         // ── CREATE INDEX ──────────────────────────────────────────────────
         Statement::CreateIndex(ci) => {
             let table = ci.table_name.to_string();
-            let columns = ci
-                .columns
-                .iter()
-                .map(|c| c.expr.to_string())
-                .collect();
+            let columns = ci.columns.iter().map(|c| c.expr.to_string()).collect();
             ParsedStatement::CreateIndex {
                 index_name: ci.name.as_ref().map(|n| n.to_string()),
                 table,
@@ -435,7 +437,9 @@ fn lower_to_parsed(stmt: Statement) -> ParsedStatement {
         }
 
         // ── ALTER TABLE ───────────────────────────────────────────────────
-        Statement::AlterTable { name, operations, .. } => {
+        Statement::AlterTable {
+            name, operations, ..
+        } => {
             let table = name.to_string();
 
             // We handle the first meaningful operation; one ALTER TABLE
@@ -472,7 +476,11 @@ fn lower_to_parsed(stmt: Statement) -> ParsedStatement {
                     }
 
                     // DROP COLUMN
-                    AlterTableOperation::DropColumn { column_name, if_exists, .. } => {
+                    AlterTableOperation::DropColumn {
+                        column_name,
+                        if_exists,
+                        ..
+                    } => {
                         return ParsedStatement::AlterTableDropColumn {
                             table,
                             column: column_name.to_string(),
@@ -516,47 +524,45 @@ fn lower_to_parsed(stmt: Statement) -> ParsedStatement {
                     }
 
                     // ADD CONSTRAINT (FK, PK, unique)
-                    AlterTableOperation::AddConstraint(constraint) => {
-                        match constraint {
-                            TableConstraint::ForeignKey {
-                                name,
-                                columns: fk_cols,
-                                foreign_table,
-                                referred_columns,
-                                on_delete,
-                                on_update,
-                                ..
-                            } => {
-                                return ParsedStatement::AlterTableAddForeignKey {
-                                    table,
-                                    fk: ForeignKeyInfo {
-                                        columns: fk_cols.iter().map(|c| c.to_string()).collect(),
-                                        ref_table: foreign_table.to_string(),
-                                        ref_columns: referred_columns
-                                            .iter()
-                                            .map(|c| c.to_string())
-                                            .collect(),
-                                        on_delete_cascade: on_delete
-                                            .as_ref()
-                                            .map(|a| a.to_string().to_uppercase().contains("CASCADE"))
-                                            .unwrap_or(false),
-                                        on_update_cascade: on_update
-                                            .as_ref()
-                                            .map(|a| a.to_string().to_uppercase().contains("CASCADE"))
-                                            .unwrap_or(false),
-                                        constraint_name: name.as_ref().map(|n| n.to_string()),
-                                    },
-                                };
-                            }
-                            TableConstraint::PrimaryKey { columns, .. } => {
-                                return ParsedStatement::AlterTableAddPrimaryKey {
-                                    table,
-                                    columns: columns.iter().map(|c| c.to_string()).collect(),
-                                };
-                            }
-                            _ => {}
+                    AlterTableOperation::AddConstraint(constraint) => match constraint {
+                        TableConstraint::ForeignKey {
+                            name,
+                            columns: fk_cols,
+                            foreign_table,
+                            referred_columns,
+                            on_delete,
+                            on_update,
+                            ..
+                        } => {
+                            return ParsedStatement::AlterTableAddForeignKey {
+                                table,
+                                fk: ForeignKeyInfo {
+                                    columns: fk_cols.iter().map(|c| c.to_string()).collect(),
+                                    ref_table: foreign_table.to_string(),
+                                    ref_columns: referred_columns
+                                        .iter()
+                                        .map(|c| c.to_string())
+                                        .collect(),
+                                    on_delete_cascade: on_delete
+                                        .as_ref()
+                                        .map(|a| a.to_string().to_uppercase().contains("CASCADE"))
+                                        .unwrap_or(false),
+                                    on_update_cascade: on_update
+                                        .as_ref()
+                                        .map(|a| a.to_string().to_uppercase().contains("CASCADE"))
+                                        .unwrap_or(false),
+                                    constraint_name: name.as_ref().map(|n| n.to_string()),
+                                },
+                            };
                         }
-                    }
+                        TableConstraint::PrimaryKey { columns, .. } => {
+                            return ParsedStatement::AlterTableAddPrimaryKey {
+                                table,
+                                columns: columns.iter().map(|c| c.to_string()).collect(),
+                            };
+                        }
+                        _ => {}
+                    },
 
                     // DROP CONSTRAINT
                     AlterTableOperation::DropConstraint { name, cascade, .. } => {
@@ -568,7 +574,10 @@ fn lower_to_parsed(stmt: Statement) -> ParsedStatement {
                     }
 
                     // RENAME COLUMN
-                    AlterTableOperation::RenameColumn { old_column_name, new_column_name } => {
+                    AlterTableOperation::RenameColumn {
+                        old_column_name,
+                        new_column_name,
+                    } => {
                         return ParsedStatement::AlterTableRenameColumn {
                             table,
                             old: old_column_name.to_string(),

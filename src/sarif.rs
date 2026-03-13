@@ -232,9 +232,8 @@ pub fn render_sarif(reports: &[MigrationReport]) -> String {
         }]
     });
 
-    serde_json::to_string_pretty(&sarif).unwrap_or_else(|e| {
-        format!("{{\"error\": \"SARIF serialisation failed: {e}\"}}")
-    })
+    serde_json::to_string_pretty(&sarif)
+        .unwrap_or_else(|e| format!("{{\"error\": \"SARIF serialisation failed: {e}\"}}"))
 }
 
 // ─────────────────────────────────────────────

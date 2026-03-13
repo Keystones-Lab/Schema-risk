@@ -47,7 +47,9 @@ impl std::str::FromStr for CiFormat {
             "github-comment" => Ok(CiFormat::GithubComment),
             "gitlab-comment" => Ok(CiFormat::GitlabComment),
             "json" => Ok(CiFormat::Json),
-            other => Err(format!("unknown CI format: '{other}' — valid: github-comment, gitlab-comment, json")),
+            other => Err(format!(
+                "unknown CI format: '{other}' — valid: github-comment, gitlab-comment, json"
+            )),
         }
     }
 }
@@ -73,9 +75,7 @@ pub fn render_ci_report(
         CiFormat::GithubComment | CiFormat::GitlabComment => {
             render_markdown(reports, fixes, impact)
         }
-        CiFormat::Json => {
-            serde_json::to_string_pretty(reports).unwrap_or_default()
-        }
+        CiFormat::Json => serde_json::to_string_pretty(reports).unwrap_or_default(),
     }
 }
 
@@ -135,9 +135,7 @@ fn render_markdown(
             .estimated_lock_seconds
             .map(format_duration)
             .unwrap_or_else(|| "—".to_string());
-        let breaks = impact
-            .map(|i| i.impacted_files.len())
-            .unwrap_or(0);
+        let breaks = impact.map(|i| i.impacted_files.len()).unwrap_or(0);
         let breaks_str = if breaks > 0 {
             format!("⚠️ {} file(s)", breaks)
         } else {
@@ -177,11 +175,7 @@ fn render_file_section(
 
     // ── Metadata line ──────────────────────────────────────────────────────
     if !r.affected_tables.is_empty() {
-        let tables: Vec<String> = r
-            .affected_tables
-            .iter()
-            .map(|t| format!("`{t}`"))
-            .collect();
+        let tables: Vec<String> = r.affected_tables.iter().map(|t| format!("`{t}")).collect();
         md.push_str(&format!("**Tables affected:** {}\n\n", tables.join(", ")));
     }
 
@@ -238,11 +232,7 @@ fn render_file_section(
             );
             for f in impact_report.impacted_files.iter().take(15) {
                 for hit in f.hits.iter().take(3) {
-                    let snippet = hit
-                        .snippet
-                        .chars()
-                        .take(100)
-                        .collect::<String>();
+                    let snippet = hit.snippet.chars().take(100).collect::<String>();
                     md.push_str(&format!(
                         "- [`{}:{}`]({}) — `{snippet}`\n",
                         f.path, hit.line, f.path
@@ -283,7 +273,9 @@ fn render_file_section(
             }
 
             if let Some(steps) = &fix.migration_steps {
-                md.push_str("<details>\n<summary>📋 Zero-downtime migration steps</summary>\n\n```sql\n");
+                md.push_str(
+                    "<details>\n<summary>📋 Zero-downtime migration steps</summary>\n\n```sql\n",
+                );
                 for step in steps {
                     md.push_str(step);
                     md.push('\n');
@@ -390,7 +382,10 @@ mod tests {
 
     #[test]
     fn test_github_comment_contains_table_header() {
-        let reports = vec![make_report("migrations/0042_add_index.sql", RiskLevel::Critical)];
+        let reports = vec![make_report(
+            "migrations/0042_add_index.sql",
+            RiskLevel::Critical,
+        )];
         let fixes = HashMap::new();
         let output = render_ci_report(&reports, &fixes, None, CiFormat::GithubComment);
         assert!(output.contains("SchemaRisk v2"));

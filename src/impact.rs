@@ -13,7 +13,6 @@ use std::collections::HashMap;
 use std::ffi::OsStr;
 use std::path::{Path, PathBuf};
 
-
 // ─────────────────────────────────────────────
 // Public types
 // ─────────────────────────────────────────────
@@ -66,8 +65,7 @@ pub struct ImpactReport {
 
 /// Source file extensions we want to look inside.
 const SOURCE_EXTENSIONS: &[&str] = &[
-    "rs", "go", "py", "js", "ts", "jsx", "tsx", "rb", "java", "cs", "php",
-    "sql", "graphql",
+    "rs", "go", "py", "js", "ts", "jsx", "tsx", "rb", "java", "cs", "php", "sql", "graphql",
 ];
 
 pub struct ImpactScanner {
@@ -122,10 +120,16 @@ impl ImpactScanner {
         let mut column_file_map: HashMap<String, Vec<String>> = HashMap::new();
         for f in &impacted_files {
             for t in &f.tables_referenced {
-                table_file_map.entry(t.clone()).or_default().push(f.path.clone());
+                table_file_map
+                    .entry(t.clone())
+                    .or_default()
+                    .push(f.path.clone());
             }
             for c in &f.columns_referenced {
-                column_file_map.entry(c.clone()).or_default().push(f.path.clone());
+                column_file_map
+                    .entry(c.clone())
+                    .or_default()
+                    .push(f.path.clone());
             }
         }
 
@@ -165,7 +169,9 @@ impl ImpactScanner {
             }
 
             for col in &self.columns {
-                if line_lower.contains(col.as_str()) && !content_lower.contains(&format!("-- {}", col)) {
+                if line_lower.contains(col.as_str())
+                    && !content_lower.contains(&format!("-- {}", col))
+                {
                     if !columns_found.contains(col) {
                         columns_found.push(col.clone());
                     }
@@ -257,14 +263,21 @@ fn collect_source_files(root: &Path) -> Vec<PathBuf> {
 }
 
 fn collect_recursive(dir: &Path, out: &mut Vec<PathBuf>) {
-    let Ok(entries) = std::fs::read_dir(dir) else { return };
+    let Ok(entries) = std::fs::read_dir(dir) else {
+        return;
+    };
 
     for entry in entries.flatten() {
         let path = entry.path();
 
         // Skip hidden dirs and common build/vendor dirs
         let name = path.file_name().and_then(OsStr::to_str).unwrap_or("");
-        if name.starts_with('.') || matches!(name, "node_modules" | "target" | "dist" | "build" | "vendor" | "__pycache__" | ".git") {
+        if name.starts_with('.')
+            || matches!(
+                name,
+                "node_modules" | "target" | "dist" | "build" | "vendor" | "__pycache__" | ".git"
+            )
+        {
             continue;
         }
 

@@ -18,9 +18,21 @@ use std::collections::HashMap;
 
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub enum SchemaNode {
-    Table { name: String, estimated_rows: Option<u64> },
-    Column { table: String, name: String, data_type: String, nullable: bool },
-    Index { name: String, table: String, unique: bool },
+    Table {
+        name: String,
+        estimated_rows: Option<u64>,
+    },
+    Column {
+        table: String,
+        name: String,
+        data_type: String,
+        nullable: bool,
+    },
+    Index {
+        name: String,
+        table: String,
+        unique: bool,
+    },
 }
 
 impl SchemaNode {
@@ -217,11 +229,12 @@ impl SchemaGraph {
                 .graph
                 .edges(idx)
                 .filter_map(|e| {
-                    if let SchemaEdge::ForeignKey { constraint_name, .. } = e.weight() {
+                    if let SchemaEdge::ForeignKey {
+                        constraint_name, ..
+                    } = e.weight()
+                    {
                         if let SchemaNode::Table { name: tname, .. } = &self.graph[e.target()] {
-                            let cn = constraint_name
-                                .as_deref()
-                                .unwrap_or("unnamed");
+                            let cn = constraint_name.as_deref().unwrap_or("unnamed");
                             return Some(format!("  FK({}) → {}", cn, tname));
                         }
                     }
@@ -269,7 +282,10 @@ impl SchemaGraph {
                 .iter()
                 .filter(|(key, _)| key.starts_with(&format!("{}.", table_name)))
                 .filter_map(|(_, &col_idx)| {
-                    if let SchemaNode::Column { name, data_type, .. } = &self.graph[col_idx] {
+                    if let SchemaNode::Column {
+                        name, data_type, ..
+                    } = &self.graph[col_idx]
+                    {
                         // Detect primary key by checking if the column name is "id" or
                         // if the table has an index that covers only this column.
                         let is_pk = name == "id";
@@ -292,8 +308,15 @@ impl SchemaGraph {
             }
 
             // Row estimate comment
-            if let SchemaNode::Table { estimated_rows: Some(rows), .. } = &self.graph[table_idx] {
-                out.push_str(&format!("        string __rows \"~{}\"\n", human_rows(*rows)));
+            if let SchemaNode::Table {
+                estimated_rows: Some(rows),
+                ..
+            } = &self.graph[table_idx]
+            {
+                out.push_str(&format!(
+                    "        string __rows \"~{}\"\n",
+                    human_rows(*rows)
+                ));
             }
 
             out.push_str("    }\n");
@@ -309,20 +332,22 @@ impl SchemaGraph {
                 } = edge.weight()
                 {
                     // Determine source and target table names
-                    let source = if let SchemaNode::Table { name, .. } = &self.graph[edge.source()] {
+                    let source = if let SchemaNode::Table { name, .. } = &self.graph[edge.source()]
+                    {
                         name.clone()
                     } else {
                         continue;
                     };
-                    let target = if let SchemaNode::Table { name, .. } = &self.graph[edge.target()] {
+                    let target = if let SchemaNode::Table { name, .. } = &self.graph[edge.target()]
+                    {
                         name.clone()
                     } else {
                         continue;
                     };
 
-                    let label = constraint_name
-                        .as_deref()
-                        .unwrap_or_else(|| from_columns.first().map(|s| s.as_str()).unwrap_or("fk"));
+                    let label = constraint_name.as_deref().unwrap_or_else(|| {
+                        from_columns.first().map(|s| s.as_str()).unwrap_or("fk")
+                    });
 
                     out.push_str(&format!(
                         "    {} }}o--|| {} : \"{}\"\n",
@@ -350,21 +375,27 @@ impl SchemaGraph {
 
         // ── Table nodes (record shape with column list) ───────────────────
         for (table_name, &table_idx) in &self.table_index {
-            let row_info =
-                if let SchemaNode::Table { estimated_rows: Some(rows), .. } = &self.graph[table_idx]
-                {
-                    format!(" (~{})", human_rows(*rows))
-                } else {
-                    String::new()
-                };
+            let row_info = if let SchemaNode::Table {
+                estimated_rows: Some(rows),
+                ..
+            } = &self.graph[table_idx]
+            {
+                format!(" (~{})", human_rows(*rows))
+            } else {
+                String::new()
+            };
 
             let col_labels: Vec<String> = self
                 .column_index
                 .iter()
                 .filter(|(key, _)| key.starts_with(&format!("{}.", table_name)))
                 .filter_map(|(_, &col_idx)| {
-                    if let SchemaNode::Column { name, data_type, nullable, .. } =
-                        &self.graph[col_idx]
+                    if let SchemaNode::Column {
+                        name,
+                        data_type,
+                        nullable,
+                        ..
+                    } = &self.graph[col_idx]
                     {
                         let null_marker = if *nullable { "?" } else { "" };
                         Some(format!(
@@ -406,22 +437,22 @@ impl SchemaGraph {
                     ..
                 } = edge.weight()
                 {
-                    let source =
-                        if let SchemaNode::Table { name, .. } = &self.graph[edge.source()] {
-                            name.clone()
-                        } else {
-                            continue;
-                        };
-                    let target =
-                        if let SchemaNode::Table { name, .. } = &self.graph[edge.target()] {
-                            name.clone()
-                        } else {
-                            continue;
-                        };
+                    let source = if let SchemaNode::Table { name, .. } = &self.graph[edge.source()]
+                    {
+                        name.clone()
+                    } else {
+                        continue;
+                    };
+                    let target = if let SchemaNode::Table { name, .. } = &self.graph[edge.target()]
+                    {
+                        name.clone()
+                    } else {
+                        continue;
+                    };
 
-                    let label = constraint_name
-                        .as_deref()
-                        .unwrap_or_else(|| from_columns.first().map(|s| s.as_str()).unwrap_or("fk"));
+                    let label = constraint_name.as_deref().unwrap_or_else(|| {
+                        from_columns.first().map(|s| s.as_str()).unwrap_or("fk")
+                    });
 
                     let style = if *cascade_delete { "dashed" } else { "solid" };
 
@@ -449,7 +480,13 @@ impl SchemaGraph {
 /// Both formats disallow spaces, hyphens, and special characters in raw IDs.
 fn sanitise_id(name: &str) -> String {
     name.chars()
-        .map(|c| if c.is_alphanumeric() || c == '_' { c } else { '_' })
+        .map(|c| {
+            if c.is_alphanumeric() || c == '_' {
+                c
+            } else {
+                '_'
+            }
+        })
         .collect()
 }
 
@@ -481,7 +518,12 @@ fn mermaid_type(pg_type: &str) -> &str {
         "uuid"
     } else if lower.contains("json") {
         "json"
-    } else if lower.contains("float") || lower.contains("real") || lower.contains("double") || lower.contains("numeric") || lower.contains("decimal") {
+    } else if lower.contains("float")
+        || lower.contains("real")
+        || lower.contains("double")
+        || lower.contains("numeric")
+        || lower.contains("decimal")
+    {
         "float"
     } else if lower.contains("bytea") {
         "bytes"

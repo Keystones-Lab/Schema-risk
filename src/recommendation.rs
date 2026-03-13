@@ -155,10 +155,7 @@ pub fn suggest_fixes(
                     let rows = row_counts.get(t).copied().unwrap_or(0);
                     let est = estimate_lock_secs(rows);
                     if est > 5 {
-                        suggestions.push(rule_r08_long_lock(
-                            &format!("DROP TABLE {t}"),
-                            est,
-                        ));
+                        suggestions.push(rule_r08_long_lock(&format!("DROP TABLE {t}"), est));
                     }
                 }
             }
@@ -184,7 +181,9 @@ pub fn suggest_fixes(
 /// Returns the modified SQL string. Lines not matched by any rule are
 /// passed through unchanged.
 pub fn apply_fixes(sql: &str, suggestions: &[FixSuggestion]) -> String {
-    let has_r01 = suggestions.iter().any(|s| s.rule_id == "R01" && s.auto_fixable);
+    let has_r01 = suggestions
+        .iter()
+        .any(|s| s.rule_id == "R01" && s.auto_fixable);
     if !has_r01 {
         return sql.to_string();
     }
@@ -199,8 +198,7 @@ pub fn apply_fixes(sql: &str, suggestions: &[FixSuggestion]) -> String {
 /// (`BEGIN`, `START TRANSACTION`) with a corresponding `COMMIT` or `ROLLBACK`.
 fn is_inside_transaction_block(sql: &str) -> bool {
     let upper = sql.to_uppercase();
-    let has_begin = upper.contains("BEGIN")
-        || upper.contains("START TRANSACTION");
+    let has_begin = upper.contains("BEGIN") || upper.contains("START TRANSACTION");
     let has_commit = upper.contains("COMMIT") || upper.contains("ROLLBACK");
     has_begin && has_commit
 }
@@ -215,7 +213,8 @@ fn rewrite_index_concurrent_in_txn(sql: &str) -> String {
                 && !upper.contains("CONCURRENTLY")
             {
                 vec![
-                    "-- ⚠️  schemarisk: Cannot use CONCURRENTLY inside a transaction block.".to_string(),
+                    "-- ⚠️  schemarisk: Cannot use CONCURRENTLY inside a transaction block."
+                        .to_string(),
                     "-- Remove BEGIN/COMMIT wrapper and run this statement standalone.".to_string(),
                     line.to_string(),
                 ]
@@ -272,12 +271,7 @@ fn rule_r01_index_concurrently(
 }
 
 /// R02 — ADD COLUMN NOT NULL without DEFAULT.
-fn rule_r02_add_not_null(
-    table: &str,
-    column: &str,
-    data_type: &str,
-    rows: u64,
-) -> FixSuggestion {
+fn rule_r02_add_not_null(table: &str, column: &str, data_type: &str, rows: u64) -> FixSuggestion {
     let rows_note = if rows > 0 {
         format!(" (~{} rows)", fmt_rows(rows))
     } else {
@@ -354,9 +348,7 @@ fn rule_r03_drop_column(table: &str, column: &str, rows: u64) -> FixSuggestion {
             format!("--   SELECT id, {column} FROM {table};"),
         ]),
         severity,
-        docs_url: Some(
-            "https://www.postgresql.org/docs/current/sql-altertable.html".to_string(),
-        ),
+        docs_url: Some("https://www.postgresql.org/docs/current/sql-altertable.html".to_string()),
         auto_fixable: false,
     }
 }
@@ -367,9 +359,7 @@ fn rule_r04_missing_fk_index(table: &str, fk_columns: &[String]) -> FixSuggestio
     let col_snake = fk_columns.join("_");
     FixSuggestion {
         rule_id: "R04".to_string(),
-        title: format!(
-            "Add an index on FK column(s) ({col_list}) to prevent sequential scans"
-        ),
+        title: format!("Add an index on FK column(s) ({col_list}) to prevent sequential scans"),
         explanation: format!(
             "PostgreSQL does NOT automatically create an index on foreign key columns. \
              Without an index on '{table}.({col_list})', every DELETE or UPDATE on the \
@@ -382,9 +372,7 @@ fn rule_r04_missing_fk_index(table: &str, fk_columns: &[String]) -> FixSuggestio
         )),
         migration_steps: None,
         severity: FixSeverity::Warning,
-        docs_url: Some(
-            "https://www.postgresql.org/docs/current/indexes-intro.html".to_string(),
-        ),
+        docs_url: Some("https://www.postgresql.org/docs/current/indexes-intro.html".to_string()),
         auto_fixable: false,
     }
 }
@@ -393,9 +381,7 @@ fn rule_r04_missing_fk_index(table: &str, fk_columns: &[String]) -> FixSuggestio
 fn rule_r05_rename_column(table: &str, old: &str, new: &str) -> FixSuggestion {
     FixSuggestion {
         rule_id: "R05".to_string(),
-        title: format!(
-            "Use expand-contract pattern to rename '{old}' → '{new}' without downtime"
-        ),
+        title: format!("Use expand-contract pattern to rename '{old}' → '{new}' without downtime"),
         explanation: format!(
             "Renaming column '{old}' in '{table}' is a **breaking change** for every \
              piece of application code, ORM model, stored procedure, view, and query \
@@ -422,9 +408,7 @@ fn rule_r05_rename_column(table: &str, old: &str, new: &str) -> FixSuggestion {
             format!("ALTER TABLE {table} DROP COLUMN {old};"),
         ]),
         severity: FixSeverity::Blocking,
-        docs_url: Some(
-            "https://martinfowler.com/bliki/ParallelChange.html".to_string(),
-        ),
+        docs_url: Some("https://martinfowler.com/bliki/ParallelChange.html".to_string()),
         auto_fixable: false,
     }
 }
@@ -433,9 +417,7 @@ fn rule_r05_rename_column(table: &str, old: &str, new: &str) -> FixSuggestion {
 fn rule_r06_rename_table(old: &str, new: &str) -> FixSuggestion {
     FixSuggestion {
         rule_id: "R06".to_string(),
-        title: format!(
-            "Renaming table '{old}' → '{new}' breaks all downstream code instantly"
-        ),
+        title: format!("Renaming table '{old}' → '{new}' breaks all downstream code instantly"),
         explanation: format!(
             "Renaming table '{old}' invalidates ALL queries, ORM models, foreign key \
              constraints, views, triggers, and stored procedures that reference the old \
@@ -527,9 +509,7 @@ fn rule_r07_alter_column_type(
 fn rule_r08_long_lock(description: &str, est_secs: u64) -> FixSuggestion {
     FixSuggestion {
         rule_id: "R08".to_string(),
-        title: format!(
-            "ACCESS EXCLUSIVE lock held for ~{est_secs}s — protect with lock_timeout"
-        ),
+        title: format!("ACCESS EXCLUSIVE lock held for ~{est_secs}s — protect with lock_timeout"),
         explanation: format!(
             "The operation '{}' acquires ACCESS EXCLUSIVE lock for an estimated \
              ~{est_secs} seconds. During this window every query, transaction, and \
@@ -549,7 +529,8 @@ fn rule_r08_long_lock(description: &str, est_secs: u64) -> FixSuggestion {
             String::new(),
             "COMMIT;".to_string(),
             String::new(),
-            "-- For tables > 1GB, consider pg_repack for zero-downtime online rewrites:".to_string(),
+            "-- For tables > 1GB, consider pg_repack for zero-downtime online rewrites:"
+                .to_string(),
             "-- https://github.com/reorg/pg_repack".to_string(),
             "-- pg_repack --dbname=<db_url> --table=<table_name>".to_string(),
         ]),

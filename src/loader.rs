@@ -21,10 +21,7 @@ pub fn load_file(path: impl AsRef<Path>) -> Result<MigrationFile> {
         )));
     }
 
-    let ext = path
-        .extension()
-        .and_then(|e| e.to_str())
-        .unwrap_or("");
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
     if !["sql", "psql", "pg"].contains(&ext) {
         return Err(SchemaRiskError::InvalidMigration(format!(

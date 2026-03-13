@@ -66,30 +66,58 @@ impl DriftFinding {
     pub fn description(&self) -> String {
         match self {
             DriftFinding::ExtraTable { table } => {
-                format!("Table '{}' exists in the database but not in any migration file", table)
+                format!(
+                    "Table '{}' exists in the database but not in any migration file",
+                    table
+                )
             }
             DriftFinding::MissingTable { table } => {
-                format!("Table '{}' is defined in migrations but not found in the live database", table)
+                format!(
+                    "Table '{}' is defined in migrations but not found in the live database",
+                    table
+                )
             }
-            DriftFinding::ColumnTypeMismatch { table, column, in_migration, in_database } => {
+            DriftFinding::ColumnTypeMismatch {
+                table,
+                column,
+                in_migration,
+                in_database,
+            } => {
                 format!(
                     "Column '{}.{}': migration says '{}' but database has '{}'",
                     table, column, in_migration, in_database
                 )
             }
             DriftFinding::ExtraColumn { table, column } => {
-                format!("Column '{}.{}' exists in database but not in migration files", table, column)
+                format!(
+                    "Column '{}.{}' exists in database but not in migration files",
+                    table, column
+                )
             }
             DriftFinding::MissingColumn { table, column } => {
-                format!("Column '{}.{}' is in migration files but not in the database", table, column)
+                format!(
+                    "Column '{}.{}' is in migration files but not in the database",
+                    table, column
+                )
             }
             DriftFinding::ExtraIndex { table, index } => {
-                format!("Index '{}' on '{}' exists in database but not in migration files", index, table)
+                format!(
+                    "Index '{}' on '{}' exists in database but not in migration files",
+                    index, table
+                )
             }
             DriftFinding::MissingIndex { table, index } => {
-                format!("Index '{}' on '{}' is in migration files but not in the database", index, table)
+                format!(
+                    "Index '{}' on '{}' is in migration files but not in the database",
+                    index, table
+                )
             }
-            DriftFinding::NullableMismatch { table, column, in_migration, in_database } => {
+            DriftFinding::NullableMismatch {
+                table,
+                column,
+                in_migration,
+                in_database,
+            } => {
                 format!(
                     "Nullable mismatch on '{}.{}': migration says nullable={}, database says nullable={}",
                     table, column, in_migration, in_database
@@ -133,15 +161,25 @@ pub fn diff(migration_graph: &SchemaGraph, live: &LiveSchema) -> DriftReport {
 
     // Tables in DB but not in migrations
     for db_table in &database_tables {
-        if !migration_tables.iter().any(|t| t.eq_ignore_ascii_case(db_table)) {
-            findings.push(DriftFinding::ExtraTable { table: db_table.clone() });
+        if !migration_tables
+            .iter()
+            .any(|t| t.eq_ignore_ascii_case(db_table))
+        {
+            findings.push(DriftFinding::ExtraTable {
+                table: db_table.clone(),
+            });
         }
     }
 
     // Tables in migrations but not in DB
     for mig_table in &migration_tables {
-        if !database_tables.iter().any(|t| t.eq_ignore_ascii_case(mig_table)) {
-            findings.push(DriftFinding::MissingTable { table: mig_table.clone() });
+        if !database_tables
+            .iter()
+            .any(|t| t.eq_ignore_ascii_case(mig_table))
+        {
+            findings.push(DriftFinding::MissingTable {
+                table: mig_table.clone(),
+            });
         }
     }
 
@@ -226,16 +264,17 @@ pub fn diff(migration_graph: &SchemaGraph, live: &LiveSchema) -> DriftReport {
 
         // Indexes in migration but not in DB
         for (idx_name, &_idx_node) in &migration_graph.index_index {
-            let table_prefix_match = live
-                .indexes
-                .values()
-                .any(|i| i.table.eq_ignore_ascii_case(mig_table) && i.name.eq_ignore_ascii_case(idx_name));
+            let table_prefix_match = live.indexes.values().any(|i| {
+                i.table.eq_ignore_ascii_case(mig_table) && i.name.eq_ignore_ascii_case(idx_name)
+            });
 
             if !table_prefix_match {
                 // Check if this index belongs to the current table
                 let migration_idx_node = migration_graph.index_index.get(idx_name);
                 if let Some(&node) = migration_idx_node {
-                    if let crate::graph::SchemaNode::Index { table, .. } = &migration_graph.graph[node] {
+                    if let crate::graph::SchemaNode::Index { table, .. } =
+                        &migration_graph.graph[node]
+                    {
                         if table.eq_ignore_ascii_case(mig_table) {
                             findings.push(DriftFinding::MissingIndex {
                                 table: mig_table.clone(),

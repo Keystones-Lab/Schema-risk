@@ -316,7 +316,10 @@ async fn main() {
             let engine = if let Some(url) = &db_url {
                 match fetch_live_schema(url).await {
                     Ok(live) => {
-                        eprintln!("info: Connected to database, fetched {} tables", live.tables.len());
+                        eprintln!(
+                            "info: Connected to database, fetched {} tables",
+                            live.tables.len()
+                        );
                         RiskEngine::with_live_schema(row_counts, live)
                     }
                     Err(e) => {
@@ -443,24 +446,23 @@ async fn main() {
             );
             for (i, (stmt, op)) in stmts
                 .iter()
-                .zip(report.operations.iter().chain(std::iter::repeat(&schema_risk::types::DetectedOperation {
-                    description: String::new(),
-                    tables: vec![],
-                    risk_level: RiskLevel::Low,
-                    score: 0,
-                    warning: None,
-                    acquires_lock: false,
-                    index_rebuild: false,
-                })))
+                .zip(report.operations.iter().chain(std::iter::repeat(
+                    &schema_risk::types::DetectedOperation {
+                        description: String::new(),
+                        tables: vec![],
+                        risk_level: RiskLevel::Low,
+                        score: 0,
+                        warning: None,
+                        acquires_lock: false,
+                        index_rebuild: false,
+                    },
+                )))
                 .enumerate()
             {
                 println!(
                     "  [{:02}] {}",
                     i + 1,
-                    format!("{:?}", stmt)
-                        .chars()
-                        .take(120)
-                        .collect::<String>()
+                    format!("{:?}", stmt).chars().take(120).collect::<String>()
                 );
                 if !op.description.is_empty() {
                     println!("       → {}", op.description.cyan());
@@ -473,7 +475,11 @@ async fn main() {
         }
 
         // ── schema-risk graph ─────────────────────────────────────────────
-        Commands::Graph { files, format, table_rows } => {
+        Commands::Graph {
+            files,
+            format,
+            table_rows,
+        } => {
             let row_counts = parse_row_counts(table_rows.as_deref());
             let engine = RiskEngine::new(row_counts);
             let mut combined_graph = graph::SchemaGraph::new();
@@ -497,10 +503,7 @@ async fn main() {
             use colored::Colorize;
             match format {
                 GraphFormat::Text => {
-                    println!(
-                        "\n  {}\n",
-                        "Schema Dependency Graph".bold().underline()
-                    );
+                    println!("\n  {}\n", "Schema Dependency Graph".bold().underline());
                     println!("{}", combined_graph.text_summary());
                     println!(
                         "\n  Total tables: {}\n",
@@ -517,7 +520,11 @@ async fn main() {
         }
 
         // ── schema-risk diff ──────────────────────────────────────────────
-        Commands::Diff { files, db_url, format } => {
+        Commands::Diff {
+            files,
+            db_url,
+            format,
+        } => {
             // Build schema graph from migration files
             let row_counts = HashMap::new();
             let engine = RiskEngine::new(row_counts);
@@ -617,10 +624,7 @@ async fn main() {
             // Show diff between original and fixed
             let auto_fixes: Vec<_> = fixes.iter().filter(|f| f.auto_fixable).collect();
             if !auto_fixes.is_empty() {
-                println!(
-                    "\n  {}\n",
-                    "Auto-fixable changes (diff)".bold().underline()
-                );
+                println!("\n  {}\n", "Auto-fixable changes (diff)".bold().underline());
                 print_sql_diff(&migration.sql, &fixed_sql);
             }
 
@@ -663,7 +667,10 @@ async fn main() {
             let engine = if let Some(url) = &db_url {
                 match fetch_live_schema(url).await {
                     Ok(live) => {
-                        eprintln!("info: Connected to DB, fetched {} tables", live.tables.len());
+                        eprintln!(
+                            "info: Connected to DB, fetched {} tables",
+                            live.tables.len()
+                        );
                         RiskEngine::with_live_schema(row_counts, live)
                     }
                     Err(e) => {
@@ -676,8 +683,7 @@ async fn main() {
             };
 
             let mut reports = Vec::new();
-            let mut all_fixes: HashMap<String, Vec<recommendation::FixSuggestion>> =
-                HashMap::new();
+            let mut all_fixes: HashMap<String, Vec<recommendation::FixSuggestion>> = HashMap::new();
             let mut affected_tables: Vec<String> = Vec::new();
             let mut affected_columns: Vec<String> = Vec::new();
 
@@ -705,21 +711,14 @@ async fn main() {
                 affected_tables.dedup();
                 affected_columns.sort();
                 affected_columns.dedup();
-                let scanner = ImpactScanner::new(
-                    affected_tables.clone(),
-                    affected_columns.clone(),
-                );
+                let scanner = ImpactScanner::new(affected_tables.clone(), affected_columns.clone());
                 scanner.scan(Path::new(dir))
             });
 
             // Render CI report
             let ci_format: ci::CiFormat = format.into();
-            let report_text = ci::render_ci_report(
-                &reports,
-                &all_fixes,
-                impact_report.as_ref(),
-                ci_format,
-            );
+            let report_text =
+                ci::render_ci_report(&reports, &all_fixes, impact_report.as_ref(), ci_format);
             println!("{}", report_text);
 
             // Exit code for CI
@@ -770,7 +769,11 @@ async fn main() {
                                 let report = engine.analyze(&migration.name, &stmts);
                                 match format {
                                     OutputFormat::Json => {
-                                        println!("{}", serde_json::to_string_pretty(&report).unwrap_or_default());
+                                        println!(
+                                            "{}",
+                                            serde_json::to_string_pretty(&report)
+                                                .unwrap_or_default()
+                                        );
                                     }
                                     OutputFormat::Sarif => {
                                         println!("{}", sarif::render_sarif(&[report]));
@@ -801,11 +804,7 @@ async fn main() {
             }
             match std::fs::write(config_path, config::default_yaml_template()) {
                 Ok(()) => {
-                    println!(
-                        "  {} Created {}",
-                        "✓".green().bold(),
-                        config_path.cyan()
-                    );
+                    println!("  {} Created {}", "✓".green().bold(), config_path.cyan());
                     println!("  Edit it to customise thresholds, guards, and scan settings.");
                 }
                 Err(e) => {

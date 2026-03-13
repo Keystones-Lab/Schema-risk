@@ -100,13 +100,20 @@ impl Default for ScanConfig {
         Self {
             root_dir: ".".to_string(),
             extensions: vec![
-                "rs".to_string(), "py".to_string(), "go".to_string(),
-                "ts".to_string(), "js".to_string(), "rb".to_string(),
-                "java".to_string(), "kt".to_string(),
+                "rs".to_string(),
+                "py".to_string(),
+                "go".to_string(),
+                "ts".to_string(),
+                "js".to_string(),
+                "rb".to_string(),
+                "java".to_string(),
+                "kt".to_string(),
             ],
             exclude: vec![
-                "target/".to_string(), "node_modules/".to_string(),
-                "vendor/".to_string(), ".git/".to_string(),
+                "target/".to_string(),
+                "node_modules/".to_string(),
+                "vendor/".to_string(),
+                ".git/".to_string(),
             ],
             skip_short_identifiers: true,
         }
@@ -266,8 +273,8 @@ mod tests {
 
     #[test]
     fn yaml_template_parses_correctly() {
-        let cfg: Config = serde_yaml::from_str(default_yaml_template())
-            .expect("template should be valid YAML");
+        let cfg: Config =
+            serde_yaml::from_str(default_yaml_template()).expect("template should be valid YAML");
         assert_eq!(cfg.version, 2);
         assert_eq!(cfg.thresholds.fail_on, "high");
     }

@@ -118,7 +118,13 @@ pub fn is_guarded_operation(desc: &str, score: u32) -> bool {
 // ─────────────────────────────────────────────
 
 /// Render the full impact panel to stderr for a single guarded operation.
-pub fn render_impact_panel(report: &MigrationReport, op_desc: &str, risk: RiskLevel, score: u32, actor: &ActorKind) {
+pub fn render_impact_panel(
+    report: &MigrationReport,
+    op_desc: &str,
+    risk: RiskLevel,
+    score: u32,
+    actor: &ActorKind,
+) {
     let now = Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
     let box_width = 72;
     let inner = box_width - 2;
@@ -131,8 +137,11 @@ pub fn render_impact_panel(report: &MigrationReport, op_desc: &str, risk: RiskLe
 
     // Header
     eprintln!("\n╔{}╗", "═".repeat(box_width));
-    eprintln!("║  {:<width$}  ║", "⚠  DANGEROUS OPERATION DETECTED — CONFIRMATION REQUIRED",
-              width = inner - 2);
+    eprintln!(
+        "║  {:<width$}  ║",
+        "⚠  DANGEROUS OPERATION DETECTED — CONFIRMATION REQUIRED",
+        width = inner - 2
+    );
     divider();
 
     // Operation details
@@ -186,9 +195,11 @@ pub fn render_impact_panel(report: &MigrationReport, op_desc: &str, risk: RiskLe
         // FK cascade impacts
         for fk in &report.fk_impacts {
             if fk.cascade {
-                eprintln!("║  │ {:<44} {:<10} │  ║",
-                          shorten(&fk.from_table, 44),
-                          "CASCADE DELETED");
+                eprintln!(
+                    "║  │ {:<44} {:<10} │  ║",
+                    shorten(&fk.from_table, 44),
+                    "CASCADE DELETED"
+                );
             }
         }
         eprintln!("║  └{:─<width$}┘  ║", "", width = inner - 4);
@@ -301,7 +312,10 @@ fn agent_blocked(op_desc: &str, impact: &str) -> GuardOutcome {
         "impact": impact,
         "required_action": "A human must run: schema-risk guard <file> --interactive"
     });
-    println!("{}", serde_json::to_string_pretty(&json).unwrap_or_default());
+    println!(
+        "{}",
+        serde_json::to_string_pretty(&json).unwrap_or_default()
+    );
     GuardOutcome::Blocked {
         reason: "Agent actor — automatic block enforced".to_string(),
         operation: op_desc.to_string(),
@@ -371,10 +385,7 @@ pub struct GuardOptions {
 /// - `Ok(GuardOutcome::Approved(_))` — all operations confirmed
 /// - `Ok(GuardOutcome::Blocked { .. })` — one or more operations declined
 /// - `Err(SchemaRiskError)` — parse or I/O failure
-pub fn run_guard(
-    path: &Path,
-    opts: GuardOptions,
-) -> crate::error::Result<GuardOutcome> {
+pub fn run_guard(path: &Path, opts: GuardOptions) -> crate::error::Result<GuardOutcome> {
     let actor = detect_actor();
     let migration = load_file(path)?;
     let stmts = parser::parse(&migration.sql)?;
@@ -389,7 +400,10 @@ pub fn run_guard(
         .collect();
 
     if guarded_ops.is_empty() {
-        eprintln!("  {} Safe to run — no dangerous operations detected.", "✅".green());
+        eprintln!(
+            "  {} Safe to run — no dangerous operations detected.",
+            "✅".green()
+        );
         return Ok(GuardOutcome::Safe);
     }
 
@@ -398,7 +412,11 @@ pub fn run_guard(
         for op in &guarded_ops {
             render_impact_panel(&report, &op.description, op.risk_level, op.score, &actor);
         }
-        let max_risk = guarded_ops.iter().map(|o| o.risk_level).max().unwrap_or(RiskLevel::Low);
+        let max_risk = guarded_ops
+            .iter()
+            .map(|o| o.risk_level)
+            .max()
+            .unwrap_or(RiskLevel::Low);
         let exit_code = match max_risk {
             RiskLevel::Critical => 2,
             RiskLevel::High => 1,
@@ -430,7 +448,10 @@ pub fn run_guard(
         for op in &guarded_ops {
             render_impact_panel(&report, &op.description, op.risk_level, op.score, &actor);
         }
-        eprintln!("  {} CI mode: dangerous operations blocked. Set block_ci: false to allow.", "⛔".red());
+        eprintln!(
+            "  {} CI mode: dangerous operations blocked. Set block_ci: false to allow.",
+            "⛔".red()
+        );
         return Ok(GuardOutcome::Blocked {
             reason: "CI pipeline — non-interactive block".to_string(),
             operation: guarded_ops[0].description.clone(),
@@ -443,7 +464,10 @@ pub fn run_guard(
         for op in &guarded_ops {
             render_impact_panel(&report, &op.description, op.risk_level, op.score, &actor);
         }
-        eprintln!("  {} Non-interactive mode: cannot prompt. Blocking.", "⛔".red());
+        eprintln!(
+            "  {} Non-interactive mode: cannot prompt. Blocking.",
+            "⛔".red()
+        );
         return Ok(GuardOutcome::Blocked {
             reason: "Non-interactive mode — cannot prompt for confirmation".to_string(),
             operation: guarded_ops[0].description.clone(),
@@ -459,7 +483,12 @@ pub fn run_guard(
 
         let irreversible = op.risk_level >= RiskLevel::High;
         if irreversible {
-            eprintln!("  {}", "This action is IRREVERSIBLE. All data will be permanently destroyed.".red().bold());
+            eprintln!(
+                "  {}",
+                "This action is IRREVERSIBLE. All data will be permanently destroyed."
+                    .red()
+                    .bold()
+            );
             eprintln!();
         }
 
@@ -534,7 +563,13 @@ fn build_impact_summary(report: &MigrationReport, op_desc: &str) -> String {
         format!(
             " {} table(s): {}",
             report.affected_tables.len(),
-            report.affected_tables.iter().take(3).cloned().collect::<Vec<_>>().join(", ")
+            report
+                .affected_tables
+                .iter()
+                .take(3)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ")
         )
     };
 
@@ -545,12 +580,7 @@ fn build_impact_summary(report: &MigrationReport, op_desc: &str) -> String {
         String::new()
     };
 
-    format!(
-        "{}{}{}",
-        shorten(op_desc, 60),
-        tables_str,
-        cascade_str
-    )
+    format!("{}{}{}", shorten(op_desc, 60), tables_str, cascade_str)
 }
 
 // ─────────────────────────────────────────────
@@ -563,7 +593,10 @@ mod tests {
 
     #[test]
     fn guarded_for_high_score() {
-        assert!(is_guarded_operation("ALTER TABLE x ALTER COLUMN y TYPE bigint", 80));
+        assert!(is_guarded_operation(
+            "ALTER TABLE x ALTER COLUMN y TYPE bigint",
+            80
+        ));
     }
 
     #[test]
@@ -578,7 +611,10 @@ mod tests {
 
     #[test]
     fn not_guarded_for_low_score_add_column() {
-        assert!(!is_guarded_operation("ALTER TABLE users ADD COLUMN last_seen timestamptz", 5));
+        assert!(!is_guarded_operation(
+            "ALTER TABLE users ADD COLUMN last_seen timestamptz",
+            5
+        ));
     }
 
     #[test]

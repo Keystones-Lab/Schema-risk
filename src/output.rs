@@ -28,11 +28,7 @@ pub fn render(report: &MigrationReport, verbose: bool) {
     let separator = "─".repeat(60);
 
     println!("\n{}", separator.dimmed());
-    println!(
-        "{}  {}",
-        " SchemaRisk Analysis".bold(),
-        report.file.cyan()
-    );
+    println!("{}  {}", " SchemaRisk Analysis".bold(), report.file.cyan());
     println!("{}", separator.dimmed());
 
     // Overall risk badge
@@ -181,9 +177,7 @@ fn table_preset() -> &'static str {
 
 /// Render an aligned summary table using `comfy-table` for multi-file analysis.
 pub fn render_summary_table(reports: &[MigrationReport]) {
-    use comfy_table::{
-        Attribute, Cell, CellAlignment, Color, ContentArrangement, Table,
-    };
+    use comfy_table::{Attribute, Cell, CellAlignment, Color, ContentArrangement, Table};
 
     println!();
     let mut table = Table::new();
@@ -221,19 +215,32 @@ pub fn render_summary_table(reports: &[MigrationReport]) {
             })
             .unwrap_or_else(|| "—".to_string());
         let window = if r.requires_maintenance_window {
-            Cell::new("YES").fg(Color::Red).add_attribute(Attribute::Bold)
+            Cell::new("YES")
+                .fg(Color::Red)
+                .add_attribute(Attribute::Bold)
         } else {
             Cell::new("no").fg(Color::Green)
         };
         let tables_str = if r.affected_tables.is_empty() {
             "—".to_string()
         } else {
-            r.affected_tables.iter().take(3).cloned().collect::<Vec<_>>().join(", ")
-                + if r.affected_tables.len() > 3 { " …" } else { "" }
+            r.affected_tables
+                .iter()
+                .take(3)
+                .cloned()
+                .collect::<Vec<_>>()
+                .join(", ")
+                + if r.affected_tables.len() > 3 {
+                    " …"
+                } else {
+                    ""
+                }
         };
         table.add_row(vec![
             Cell::new(shorten(&r.file, 40)),
-            Cell::new(risk_text).fg(risk_color).add_attribute(Attribute::Bold),
+            Cell::new(risk_text)
+                .fg(risk_color)
+                .add_attribute(Attribute::Bold),
             Cell::new(r.score.to_string()).set_alignment(CellAlignment::Right),
             Cell::new(duration).set_alignment(CellAlignment::Right),
             window,
@@ -272,10 +279,7 @@ pub fn render_timeline(timeline: &MigrationTimeline) {
     println!("  {}", "Lock Simulation & Migration Timeline".bold());
     println!("{}", sep.dimmed());
 
-    println!(
-        "\n  Lock Risk:         {}",
-        risk_color(timeline.lock_risk)
-    );
+    println!("\n  Lock Risk:         {}", risk_color(timeline.lock_risk));
     println!(
         "  Total duration:    ~{} sec",
         timeline.total_secs.to_string().cyan()
@@ -338,7 +342,9 @@ pub fn render_timeline(timeline: &MigrationTimeline) {
         let lock_badge = match step.lock {
             Some(LockMode::AccessExclusive) => " [LOCKED: reads+writes]".red().to_string(),
             Some(LockMode::Share) => " [LOCKED: writes only]".yellow().to_string(),
-            Some(LockMode::ShareUpdateExclusive) => " [LOCK: allows reads+writes]".cyan().to_string(),
+            Some(LockMode::ShareUpdateExclusive) => {
+                " [LOCK: allows reads+writes]".cyan().to_string()
+            }
             Some(m) => format!(" [{}]", m.name()).dimmed().to_string(),
             None => String::new(),
         };
@@ -382,12 +388,21 @@ pub fn render_impact(report: &ImpactReport) {
         if report.impacted_files.is_empty() {
             "0 (none found)".green().to_string()
         } else {
-            report.impacted_files.len().to_string().yellow().bold().to_string()
+            report
+                .impacted_files
+                .len()
+                .to_string()
+                .yellow()
+                .bold()
+                .to_string()
         }
     );
 
     if report.impacted_files.is_empty() {
-        println!("\n  {} No source files reference the affected schema objects.", "✓".green());
+        println!(
+            "\n  {} No source files reference the affected schema objects.",
+            "✓".green()
+        );
     } else {
         println!("\n  {}:", "Impacted files".bold().underline());
         for f in &report.impacted_files {
@@ -429,15 +444,15 @@ pub fn render_drift(report: &DriftReport) {
     println!("{}", sep.dimmed());
 
     if report.in_sync {
-        println!("\n  {} Schema is in sync — no drift detected.\n", "✓".green().bold());
+        println!(
+            "\n  {} Schema is in sync — no drift detected.\n",
+            "✓".green().bold()
+        );
         println!("{}", sep.dimmed());
         return;
     }
 
-    println!(
-        "\n  Overall drift:    {}",
-        risk_color(report.overall_drift)
-    );
+    println!("\n  Overall drift:    {}", risk_color(report.overall_drift));
     println!(
         "  Total findings:   {}\n",
         report.total_findings.to_string().red().bold()
@@ -450,7 +465,11 @@ pub fn render_drift(report: &DriftReport) {
         ("MEDIUM", RiskLevel::Medium, "·"),
         ("LOW", RiskLevel::Low, "·"),
     ] {
-        let items: Vec<_> = report.findings.iter().filter(|f| f.severity() == severity).collect();
+        let items: Vec<_> = report
+            .findings
+            .iter()
+            .filter(|f| f.severity() == severity)
+            .collect();
         if items.is_empty() {
             continue;
         }
@@ -481,9 +500,7 @@ pub fn render_drift(report: &DriftReport) {
 
 /// Pretty-print a list of `FixSuggestion`s from the recommendation engine.
 pub fn render_fix_suggestions(fixes: &[FixSuggestion]) {
-    use comfy_table::{
-        Attribute, Cell, Color, ContentArrangement, Table,
-    };
+    use comfy_table::{Attribute, Cell, Color, ContentArrangement, Table};
 
     let sep = "─".repeat(70);
     println!("\n{}", sep.dimmed());

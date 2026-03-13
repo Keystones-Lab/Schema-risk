@@ -40,7 +40,11 @@ impl RiskLevel {
 
     /// Returns an exit code suitable for CI: non-zero when risk >= threshold.
     pub fn exit_code(self, fail_on: RiskLevel) -> i32 {
-        if self >= fail_on { 1 } else { 0 }
+        if self >= fail_on {
+            1
+        } else {
+            0
+        }
     }
 }
 
