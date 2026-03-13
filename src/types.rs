@@ -83,6 +83,63 @@ pub struct FkImpact {
 // The final report produced for one SQL file
 // ─────────────────────────────────────────────
 
+// ─────────────────────────────────────────────
+// Guard decision — recorded outcome of a guard confirmation
+// ─────────────────────────────────────────────
+
+/// The actor type detected when running `guard`.
+#[derive(Debug, Clone, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "lowercase")]
+pub enum ActorKind {
+    Human,
+    Ci,
+    Agent,
+}
+
+impl std::fmt::Display for ActorKind {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            ActorKind::Human => write!(f, "human (interactive terminal)"),
+            ActorKind::Ci => write!(f, "ci"),
+            ActorKind::Agent => write!(f, "agent"),
+        }
+    }
+}
+
+/// Recorded outcome of a single guard confirmation prompt.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GuardDecision {
+    /// Human-readable operation description.
+    pub operation: String,
+    /// Risk level of this operation.
+    pub risk_level: RiskLevel,
+    /// Numeric risk score.
+    pub score: u32,
+    /// One-sentence human-readable impact summary.
+    pub impact_summary: String,
+    /// `true` = user confirmed; `false` = user declined / blocked.
+    pub confirmed: bool,
+    /// The phrase the user typed (or None for non-interactive runs).
+    pub typed_phrase: Option<String>,
+    /// ISO-8601 timestamp of the decision.
+    pub timestamp: String,
+    /// Which actor made the decision.
+    pub actor: ActorKind,
+}
+
+// ─────────────────────────────────────────────
+// Audit log — written by `guard` on confirmed runs
+// ─────────────────────────────────────────────
+
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct GuardAuditLog {
+    pub schemarisk_version: String,
+    pub file: String,
+    pub timestamp: String,
+    pub actor: ActorKind,
+    pub decisions: Vec<GuardDecision>,
+}
+
 #[derive(Debug, Clone, Serialize, Deserialize)]
 pub struct MigrationReport {
     pub file: String,
@@ -97,4 +154,8 @@ pub struct MigrationReport {
     pub index_rebuild_required: bool,
     pub requires_maintenance_window: bool,
     pub analyzed_at: String,
+    /// Whether any operation in this report requires guard confirmation.
+    pub guard_required: bool,
+    /// Guard decisions recorded during a `guard` run.
+    pub guard_decisions: Vec<GuardDecision>,
 }

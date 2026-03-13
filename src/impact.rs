@@ -78,10 +78,30 @@ pub struct ImpactScanner {
 }
 
 impl ImpactScanner {
+    /// Create a scanner that **skips identifiers shorter than 4 characters**
+    /// to avoid false positives (B-03 fix).
+    ///
+    /// Use [`new_scan_short`] if you need to include short identifiers.
     pub fn new(tables: Vec<String>, columns: Vec<String>) -> Self {
+        Self::new_with_options(tables, columns, true)
+    }
+
+    /// Create a scanner that includes all short identifiers (opt-in via `--scan-short-names`).
+    pub fn new_scan_short(tables: Vec<String>, columns: Vec<String>) -> Self {
+        Self::new_with_options(tables, columns, false)
+    }
+
+    fn new_with_options(tables: Vec<String>, columns: Vec<String>, skip_short: bool) -> Self {
+        let filter = |idents: Vec<String>| -> Vec<String> {
+            idents
+                .into_iter()
+                .filter(|s| !skip_short || s.chars().count() >= 4)
+                .map(|s| s.to_lowercase())
+                .collect()
+        };
         Self {
-            tables: tables.iter().map(|t| t.to_lowercase()).collect(),
-            columns: columns.iter().map(|c| c.to_lowercase()).collect(),
+            tables: filter(tables),
+            columns: filter(columns),
         }
     }
 

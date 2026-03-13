@@ -3,7 +3,7 @@ name = "schema-risk"
 version = "2.0.0"
 edition = "2021"
 authors = ["SchemaFlow Team"]
-description = "Production-grade PostgreSQL migration safety analyzer for CI/CD pipelines"
+description = "Production-grade PostgreSQL migration safety analyzer and dangerous-command guardian"
 license = "MIT"
 repository = "https://github.com/Ayuussshhh/newBase-backend"
 keywords = ["database", "migration", "sql", "risk", "cli"]
@@ -74,6 +74,15 @@ rayon = "1.10"
 
 # HTTP for GitHub API (optional – only used for CI reporting)
 reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-features = false, optional = true }
+
+# YAML config serialization/deserialization
+serde_yaml = "0.9"
+
+# Interactive terminal prompts (for guard confirmations)
+dialoguer = "0.11"
+
+# Diff display (for schema-risk diff)
+similar = "2"
 
 [features]
 default = []

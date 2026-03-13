@@ -177,6 +177,10 @@ pub fn suggest_fixes(
 /// Currently handles:
 /// - **R01**: Inserts `CONCURRENTLY` after `CREATE [UNIQUE] INDEX`
 ///
+/// **B-04 fix**: If a `CREATE INDEX` is inside a `BEGIN` / `COMMIT` transaction
+/// block, inserts a warning comment instead of adding `CONCURRENTLY`, because
+/// PostgreSQL forbids `CREATE INDEX CONCURRENTLY` inside a transaction.
+///
 /// Returns the modified SQL string. Lines not matched by any rule are
 /// passed through unchanged.
 pub fn apply_fixes(sql: &str, suggestions: &[FixSuggestion]) -> String {
@@ -184,7 +188,43 @@ pub fn apply_fixes(sql: &str, suggestions: &[FixSuggestion]) -> String {
     if !has_r01 {
         return sql.to_string();
     }
+    if is_inside_transaction_block(sql) {
+        // B-04: Cannot use CONCURRENTLY inside a transaction — emit a comment
+        return rewrite_index_concurrent_in_txn(sql);
+    }
     rewrite_index_concurrent(sql)
+}
+
+/// Returns `true` if the SQL text contains an explicit transaction block
+/// (`BEGIN`, `START TRANSACTION`) with a corresponding `COMMIT` or `ROLLBACK`.
+fn is_inside_transaction_block(sql: &str) -> bool {
+    let upper = sql.to_uppercase();
+    let has_begin = upper.contains("BEGIN")
+        || upper.contains("START TRANSACTION");
+    let has_commit = upper.contains("COMMIT") || upper.contains("ROLLBACK");
+    has_begin && has_commit
+}
+
+/// When CONCURRENTLY cannot be added (inside a transaction), insert an
+/// explanatory comment before each offending CREATE INDEX statement.
+fn rewrite_index_concurrent_in_txn(sql: &str) -> String {
+    sql.lines()
+        .flat_map(|line| {
+            let upper = line.to_uppercase();
+            if (upper.contains("CREATE INDEX") || upper.contains("CREATE UNIQUE INDEX"))
+                && !upper.contains("CONCURRENTLY")
+            {
+                vec![
+                    "-- ⚠️  schemarisk: Cannot use CONCURRENTLY inside a transaction block.".to_string(),
+                    "-- Remove BEGIN/COMMIT wrapper and run this statement standalone.".to_string(),
+                    line.to_string(),
+                ]
+            } else {
+                vec![line.to_string()]
+            }
+        })
+        .collect::<Vec<_>>()
+        .join("\n")
 }
 
 // ─────────────────────────────────────────────

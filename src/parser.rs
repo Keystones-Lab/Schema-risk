@@ -115,6 +115,38 @@ pub enum ParsedStatement {
 }
 
 // ─────────────────────────────────────────────
+// Belt-and-suspenders unsafe keyword list (B-01 fix)
+// ─────────────────────────────────────────────
+
+/// SQL keywords that are dangerous but may not be modelled by our ParsedStatement enum.
+/// Any segment containing one of these — even if sqlparser can't parse it — gets
+/// emitted as `Other` with the "Unmodelled DDL" note so the engine can score it.
+pub const UNSAFE_KEYWORDS: &[&str] = &[
+    "DROP TABLE",
+    "DROP DATABASE",
+    "DROP SCHEMA",
+    "TRUNCATE",
+    "ATTACH PARTITION",
+    "CREATE POLICY",
+    "ENABLE ROW LEVEL SECURITY",
+    "ALTER TABLE",
+];
+
+/// Returns `Some(note)` if `raw` (uppercased) contains any known unsafe keyword.
+pub fn check_unsafe_keywords(raw: &str) -> Option<String> {
+    let upper = raw.to_uppercase();
+    for kw in UNSAFE_KEYWORDS {
+        if upper.contains(kw) {
+            return Some(format!(
+                "Unmodelled DDL containing '{}' — manual review required",
+                kw
+            ));
+        }
+    }
+    None
+}
+
+// ─────────────────────────────────────────────
 // Parser
 // ─────────────────────────────────────────────
 
@@ -123,6 +155,10 @@ pub enum ParsedStatement {
 /// Fault-tolerant: unparseable statements (e.g. PL/pgSQL functions, custom
 /// extensions) are returned as `ParsedStatement::Other` rather than causing
 /// the whole file to fail.
+///
+/// **B-01 fix**: After sqlparser processing, a belt-and-suspenders sweep of the
+/// raw text checks for dangerous keywords that sqlparser might not have modelled
+/// (e.g. `ATTACH PARTITION`, `CREATE POLICY`).
 pub fn parse(sql: &str) -> Result<Vec<ParsedStatement>> {
     let segments = split_into_segments(sql);
     let dialect = PostgreSqlDialect {};
@@ -143,14 +179,25 @@ pub fn parse(sql: &str) -> Result<Vec<ParsedStatement>> {
         match Parser::parse_sql(&dialect, &to_parse) {
             Ok(stmts) => {
                 for stmt in stmts {
-                    results.push(lower_to_parsed(stmt));
+                    let parsed = lower_to_parsed(stmt);
+                    // B-01: if the statement came through as Other, check for unsafe keywords
+                    if let ParsedStatement::Other { ref raw } = parsed {
+                        if let Some(note) = check_unsafe_keywords(raw) {
+                            results.push(ParsedStatement::Other {
+                                raw: format!("{} [{}]", raw, note),
+                            });
+                            continue;
+                        }
+                    }
+                    results.push(parsed);
                 }
             }
             Err(_) => {
-                // Emit as Other so we don't lose the statement entirely
-                results.push(ParsedStatement::Other {
-                    raw: trimmed.chars().take(80).collect(),
-                });
+                // B-01: belt-and-suspenders — check the raw segment for unsafe keywords
+                let raw_note = check_unsafe_keywords(trimmed)
+                    .map(|note| format!("{} [{}]", trimmed.chars().take(80).collect::<String>(), note))
+                    .unwrap_or_else(|| trimmed.chars().take(80).collect());
+                results.push(ParsedStatement::Other { raw: raw_note });
             }
         }
     }

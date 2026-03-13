@@ -100,6 +100,8 @@ impl RiskEngine {
             index_rebuild_required,
             requires_maintenance_window,
             analyzed_at: Utc::now().to_rfc3339(),
+            guard_required: false,
+            guard_decisions: Vec::new(),
         }
     }
 
@@ -531,7 +533,23 @@ impl RiskEngine {
                 }]
             }
 
-            ParsedStatement::Other { .. } => vec![],
+            // ── OTHER (unmodelled DDL) — B-01 fix ────────────────────────────
+            ParsedStatement::Other { raw } => {
+                if raw.contains("Unmodelled DDL") {
+                    // Belt-and-suspenders: parser flagged this as potentially dangerous
+                    vec![DetectedOperation {
+                        description: raw.chars().take(100).collect(),
+                        tables: vec![],
+                        risk_level: RiskLevel::Medium,
+                        score: 30,
+                        warning: Some("Unmodelled DDL — manual review required before running".to_string()),
+                        acquires_lock: true,
+                        index_rebuild: false,
+                    }]
+                } else {
+                    vec![]
+                }
+            }
             _ => vec![],
         }
     }

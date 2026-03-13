@@ -1,16 +1,19 @@
 #![allow(dead_code)]
 
 use schema_risk::ci;
+use schema_risk::config;
 use schema_risk::db;
 use schema_risk::drift;
 use schema_risk::engine::RiskEngine;
 use schema_risk::graph;
+use schema_risk::guard::{self, GuardOptions};
 use schema_risk::impact::ImpactScanner;
 use schema_risk::loader::{self, load_file, load_glob};
 use schema_risk::locks::LockSimulator;
 use schema_risk::output;
 use schema_risk::parser;
 use schema_risk::recommendation;
+use schema_risk::sarif;
 use schema_risk::types::RiskLevel;
 
 use clap::{Parser, Subcommand, ValueEnum};
@@ -175,12 +178,61 @@ enum Commands {
         #[arg(long, default_value = "critical")]
         fail_on: FailLevel,
     },
+
+    /// Intercept a SQL migration and gate execution behind explicit confirmation.
+    ///
+    /// For each dangerous operation, shows a full impact panel and requires
+    /// typed confirmation before allowing the migration to run.
+    /// Exit code 4 means blocked; 0 means safe/approved.
+    ///
+    /// Usage pattern:
+    ///   schema-risk guard migration.sql && psql -f migration.sql
+    Guard {
+        /// Path to the SQL migration file (use - to read from stdin).
+        #[arg(required = true)]
+        file: String,
+
+        /// Print the impact panel but do not prompt. Exit code reflects risk level.
+        #[arg(long)]
+        dry_run: bool,
+
+        /// Skip interactive prompts (blocks in CI mode or when dangerous ops exist).
+        #[arg(long)]
+        non_interactive: bool,
+
+        /// Table row estimates: "users:5000000,orders:2000000"
+        #[arg(long)]
+        table_rows: Option<String>,
+
+        /// Database URL for live row counts
+        #[arg(long)]
+        db_url: Option<String>,
+
+        /// Path to `schema-risk.yml` config file
+        #[arg(long)]
+        config: Option<String>,
+
+        /// Output format for the impact panel
+        #[arg(long, default_value = "terminal")]
+        format: OutputFormat,
+    },
+
+    /// Write a starter `schema-risk.yml` configuration file to the current directory.
+    Init {
+        /// Overwrite an existing config file if present.
+        #[arg(long)]
+        force: bool,
+    },
 }
 
 #[derive(Debug, Clone, ValueEnum)]
 enum OutputFormat {
     Terminal,
     Json,
+    Sarif,
+    Markdown,
+    GithubComment,
+    GitlabComment,
 }
 
 #[derive(Debug, Clone, ValueEnum)]
@@ -337,6 +389,15 @@ async fn main() {
                 OutputFormat::Json => {
                     let json = serde_json::to_string_pretty(&reports).unwrap_or_default();
                     println!("{}", json);
+                }
+                OutputFormat::Sarif => {
+                    println!("{}", sarif::render_sarif(&reports));
+                }
+                _ => {
+                    // Markdown / GithubComment / GitlabComment — fall back to terminal
+                    for report in &reports {
+                        output::render(report, verbose);
+                    }
                 }
             }
 
@@ -496,6 +557,9 @@ async fn main() {
                 OutputFormat::Json => {
                     let json = serde_json::to_string_pretty(&drift_report).unwrap_or_default();
                     println!("{}", json);
+                }
+                _ => {
+                    output::render_drift(&drift_report);
                 }
             }
 
@@ -665,6 +729,90 @@ async fn main() {
                 .max()
                 .unwrap_or(RiskLevel::Low);
             process::exit(max_risk.exit_code(fail_level));
+        }
+
+        // ── schema-risk guard ─────────────────────────────────────────────
+        Commands::Guard {
+            file,
+            dry_run,
+            non_interactive,
+            table_rows,
+            db_url: _db_url,
+            config: config_path,
+            format,
+        } => {
+            let cfg = config::load(config_path.as_deref());
+            let row_counts = parse_row_counts(table_rows.as_deref());
+            let opts = GuardOptions {
+                dry_run,
+                non_interactive,
+                row_counts,
+                config: cfg,
+            };
+
+            let outcome = match guard::run_guard(Path::new(&file), opts) {
+                Ok(o) => o,
+                Err(e) => {
+                    eprintln!("error: {e}");
+                    process::exit(3);
+                }
+            };
+
+            // Handle SARIF/JSON format for dry-run output
+            if dry_run {
+                match format {
+                    OutputFormat::Json | OutputFormat::Sarif => {
+                        // Load and render reports for structured output
+                        let row_counts2 = HashMap::new();
+                        let engine = RiskEngine::new(row_counts2);
+                        if let Ok(migration) = load_file(&file) {
+                            if let Ok(stmts) = parser::parse(&migration.sql) {
+                                let report = engine.analyze(&migration.name, &stmts);
+                                match format {
+                                    OutputFormat::Json => {
+                                        println!("{}", serde_json::to_string_pretty(&report).unwrap_or_default());
+                                    }
+                                    OutputFormat::Sarif => {
+                                        println!("{}", sarif::render_sarif(&[report]));
+                                    }
+                                    _ => {}
+                                }
+                            }
+                        }
+                    }
+                    _ => {}
+                }
+            }
+
+            process::exit(outcome.exit_code());
+        }
+
+        // ── schema-risk init ──────────────────────────────────────────────
+        Commands::Init { force } => {
+            use colored::Colorize;
+            let config_path = "schema-risk.yml";
+            if std::path::Path::new(config_path).exists() && !force {
+                eprintln!(
+                    "  {} {} already exists. Use --force to overwrite.",
+                    "!".yellow(),
+                    config_path.cyan()
+                );
+                process::exit(1);
+            }
+            match std::fs::write(config_path, config::default_yaml_template()) {
+                Ok(()) => {
+                    println!(
+                        "  {} Created {}",
+                        "✓".green().bold(),
+                        config_path.cyan()
+                    );
+                    println!("  Edit it to customise thresholds, guards, and scan settings.");
+                }
+                Err(e) => {
+                    eprintln!("error: failed to write {config_path}: {e}");
+                    process::exit(3);
+                }
+            }
         }
     }
 }

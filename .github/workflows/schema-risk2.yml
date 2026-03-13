@@ -1,0 +1,37 @@
+# schema-risk.yml — per-project SchemaRisk configuration
+# Copy this file to your project root and customise as needed.
+# Generate a fresh copy at any time with: schema-risk init
+version: 2
+
+thresholds:
+  fail_on: high          # low | medium | high | critical
+  guard_on: medium       # operations at this level or above trigger guard prompts
+
+rules:
+  # Disable specific rules by ID
+  disabled: []           # e.g. [R03, R07]
+
+  # Per-table overrides
+  table_overrides:
+    audit_log:
+      max_risk: critical   # allow higher risk on this table (it's append-only)
+    sessions:
+      ignored: true        # skip risk analysis for this table entirely
+
+scan:
+  root_dir: "."            # directory to scan for code impact
+  extensions: [rs, py, go, ts, js, rb, java, kt]
+  exclude: [target/, node_modules/, vendor/, .git/]
+  skip_short_identifiers: true   # skip columns < 4 chars (avoids false positives)
+
+guard:
+  require_typed_confirmation: true   # require "yes I am sure" for Critical ops
+  audit_log: ".schemarisk-audit.json"
+  block_agents: true                 # always block when AGENT actor detected
+  block_ci: false                    # set true to block CI pipelines too
+
+output:
+  format: terminal        # terminal | json | markdown | sarif
+  color: true
+  show_recommendations: true
+  show_impact: true

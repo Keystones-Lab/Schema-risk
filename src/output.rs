@@ -154,20 +154,41 @@ pub fn render(report: &MigrationReport, verbose: bool) {
 }
 
 // ─────────────────────────────────────────────
+// Terminal capability detection (B-05 fix)
+// ─────────────────────────────────────────────
+
+/// Returns the appropriate `comfy-table` preset based on terminal Unicode support.
+///
+/// On xterm-compatible terminals and Unix systems, uses the richer UTF-8 preset.
+/// On Windows terminals without full Unicode support, falls back to ASCII.
+fn table_preset() -> &'static str {
+    let unicode_ok = std::env::var("TERM")
+        .map(|t| t.contains("xterm") || t.contains("rxvt") || t.contains("screen"))
+        .unwrap_or(false)
+        || cfg!(target_os = "linux")
+        || cfg!(target_os = "macos");
+
+    if unicode_ok {
+        comfy_table::presets::UTF8_FULL_CONDENSED
+    } else {
+        comfy_table::presets::ASCII_FULL
+    }
+}
+
+// ─────────────────────────────────────────────
 // Multi-file summary table
 // ─────────────────────────────────────────────
 
 /// Render an aligned summary table using `comfy-table` for multi-file analysis.
 pub fn render_summary_table(reports: &[MigrationReport]) {
     use comfy_table::{
-        presets::UTF8_FULL_CONDENSED, Attribute, Cell, CellAlignment, Color, ContentArrangement,
-        Table,
+        Attribute, Cell, CellAlignment, Color, ContentArrangement, Table,
     };
 
     println!();
     let mut table = Table::new();
     table
-        .load_preset(UTF8_FULL_CONDENSED)
+        .load_preset(table_preset())
         .set_content_arrangement(ContentArrangement::Dynamic)
         .set_header(vec![
             Cell::new("File").add_attribute(Attribute::Bold),
@@ -461,7 +482,7 @@ pub fn render_drift(report: &DriftReport) {
 /// Pretty-print a list of `FixSuggestion`s from the recommendation engine.
 pub fn render_fix_suggestions(fixes: &[FixSuggestion]) {
     use comfy_table::{
-        presets::UTF8_FULL_CONDENSED, Attribute, Cell, Color, ContentArrangement, Table,
+        Attribute, Cell, Color, ContentArrangement, Table,
     };
 
     let sep = "─".repeat(70);
@@ -472,7 +493,7 @@ pub fn render_fix_suggestions(fixes: &[FixSuggestion]) {
     // ── Compact summary table ─────────────────────────────────────────────
     let mut table = Table::new();
     table
-        .load_preset(UTF8_FULL_CONDENSED)
+        .load_preset(table_preset())
         .set_content_arrangement(ContentArrangement::Dynamic)
         .set_header(vec![
             Cell::new("ID").add_attribute(Attribute::Bold),
