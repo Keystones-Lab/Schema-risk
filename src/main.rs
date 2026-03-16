@@ -408,18 +408,27 @@ async fn main() {
                 OutputFormat::Sarif => {
                     println!("{}", sarif::render_sarif(&reports));
                 }
-                OutputFormat::Markdown | OutputFormat::GithubComment | OutputFormat::GitlabComment => {
+                OutputFormat::Markdown
+                | OutputFormat::GithubComment
+                | OutputFormat::GitlabComment => {
                     // Build fix suggestions keyed by file name
-                    let mut all_fixes: HashMap<String, Vec<recommendation::FixSuggestion>> = HashMap::new();
+                    let mut all_fixes: HashMap<String, Vec<recommendation::FixSuggestion>> =
+                        HashMap::new();
                     for pattern in &files {
                         for migration in load_pattern(pattern) {
                             if let Ok(stmts) = parser::parse(&migration.sql) {
-                                let fixes = recommendation::suggest_fixes(&stmts, &engine.row_counts);
+                                let fixes =
+                                    recommendation::suggest_fixes(&stmts, &engine.row_counts);
                                 all_fixes.insert(migration.name.clone(), fixes);
                             }
                         }
                     }
-                    let md = ci::render_ci_report(&reports, &all_fixes, None, ci::CiFormat::GithubComment);
+                    let md = ci::render_ci_report(
+                        &reports,
+                        &all_fixes,
+                        None,
+                        ci::CiFormat::GithubComment,
+                    );
                     println!("{}", md);
                 }
             }

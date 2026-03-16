@@ -118,7 +118,12 @@ pub fn suggest_fixes(
                 }
                 // R09: Adding a column WITH DEFAULT — safe on PG11+, table-rewrite on PG10-
                 if column.has_default {
-                    suggestions.push(rule_r09_add_column_default(table, &column.name, &column.data_type, rows));
+                    suggestions.push(rule_r09_add_column_default(
+                        table,
+                        &column.name,
+                        &column.data_type,
+                        rows,
+                    ));
                 }
             }
 
@@ -513,7 +518,12 @@ fn rule_r07_alter_column_type(
 /// R09 — ADD COLUMN with DEFAULT; PG10 and below rewrites the full table.
 /// On PG11+ this is a metadata-only operation (no table rewrite).
 /// We always emit an info/warning so teams know which PG version changes the behaviour.
-fn rule_r09_add_column_default(table: &str, column: &str, data_type: &str, rows: u64) -> FixSuggestion {
+fn rule_r09_add_column_default(
+    table: &str,
+    column: &str,
+    data_type: &str,
+    rows: u64,
+) -> FixSuggestion {
     let rows_note = if rows > 0 {
         format!(" (~{} rows)", fmt_rows(rows))
     } else {
@@ -561,7 +571,8 @@ fn rule_r09_add_column_default(table: &str, column: &str, data_type: &str, rows:
 }
 
 /// R08 — Long ACCESS EXCLUSIVE lock; suggest lock_timeout + pg_repack.
-fn rule_r08_long_lock(description: &str, est_secs: u64) -> FixSuggestion {    FixSuggestion {
+fn rule_r08_long_lock(description: &str, est_secs: u64) -> FixSuggestion {
+    FixSuggestion {
         rule_id: "R08".to_string(),
         title: format!("ACCESS EXCLUSIVE lock held for ~{est_secs}s — protect with lock_timeout"),
         explanation: format!(

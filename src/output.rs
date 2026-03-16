@@ -207,10 +207,15 @@ pub fn render_graph_text(graph: &SchemaGraph) {
             ..
         } = edge.weight()
         {
-            let Some(SchemaNode::Table { name: from_table, .. }) = graph.graph.node_weight(edge.source()) else {
+            let Some(SchemaNode::Table {
+                name: from_table, ..
+            }) = graph.graph.node_weight(edge.source())
+            else {
                 continue;
             };
-            let Some(SchemaNode::Table { name: to_table, .. }) = graph.graph.node_weight(edge.target()) else {
+            let Some(SchemaNode::Table { name: to_table, .. }) =
+                graph.graph.node_weight(edge.target())
+            else {
                 continue;
             };
 
@@ -253,7 +258,10 @@ fn statement_preview(stmt: &ParsedStatement) -> String {
         ParsedStatement::CreateTable { table, .. } => format!("CREATE TABLE {}", table),
         ParsedStatement::DropTable { tables, .. } => format!("DROP TABLE {}", tables.join(", ")),
         ParsedStatement::AlterTableAddColumn { table, column } => {
-            format!("ALTER TABLE {} ADD COLUMN {} {}", table, column.name, column.data_type)
+            format!(
+                "ALTER TABLE {} ADD COLUMN {} {}",
+                table, column.name, column.data_type
+            )
         }
         ParsedStatement::AlterTableDropColumn { table, column, .. } => {
             format!("ALTER TABLE {} DROP COLUMN {}", table, column)
@@ -262,7 +270,10 @@ fn statement_preview(stmt: &ParsedStatement) -> String {
             table,
             column,
             new_type,
-        } => format!("ALTER TABLE {} ALTER COLUMN {} TYPE {}", table, column, new_type),
+        } => format!(
+            "ALTER TABLE {} ALTER COLUMN {} TYPE {}",
+            table, column, new_type
+        ),
         ParsedStatement::AlterTableSetNotNull { table, column } => {
             format!("ALTER TABLE {} ALTER COLUMN {} SET NOT NULL", table, column)
         }
@@ -283,9 +294,7 @@ fn statement_preview(stmt: &ParsedStatement) -> String {
             )
         }
         ParsedStatement::AlterTableDropConstraint {
-            table,
-            constraint,
-            ..
+            table, constraint, ..
         } => format!("ALTER TABLE {} DROP CONSTRAINT {}", table, constraint),
         ParsedStatement::AlterTableRenameColumn { table, old, new } => {
             format!("ALTER TABLE {} RENAME COLUMN {} TO {}", table, old, new)
@@ -314,7 +323,11 @@ fn statement_preview(stmt: &ParsedStatement) -> String {
         }
         ParsedStatement::DropIndex { names, .. } => format!("DROP INDEX {}", names.join(", ")),
         ParsedStatement::AlterTableAddPrimaryKey { table, columns } => {
-            format!("ALTER TABLE {} ADD PRIMARY KEY ({})", table, columns.join(", "))
+            format!(
+                "ALTER TABLE {} ADD PRIMARY KEY ({})",
+                table,
+                columns.join(", ")
+            )
         }
         ParsedStatement::AlterTableDropPrimaryKey { table } => {
             format!("ALTER TABLE {} DROP PRIMARY KEY", table)
@@ -327,7 +340,10 @@ fn statement_preview(stmt: &ParsedStatement) -> String {
             if *drop_default {
                 format!("ALTER TABLE {} ALTER COLUMN {} DROP DEFAULT", table, column)
             } else {
-                format!("ALTER TABLE {} ALTER COLUMN {} SET DEFAULT ...", table, column)
+                format!(
+                    "ALTER TABLE {} ALTER COLUMN {} SET DEFAULT ...",
+                    table, column
+                )
             }
         }
         ParsedStatement::Other { raw } => {
@@ -741,7 +757,12 @@ pub fn render_fix_suggestions(fixes: &[FixSuggestion]) {
             FixSeverity::Info => format!("[{}]", "INFO".cyan()),
         };
 
-        println!("\n  {} {} {}", fix.rule_id.bold(), severity_badge, fix.title.bold());
+        println!(
+            "\n  {} {} {}",
+            fix.rule_id.bold(),
+            severity_badge,
+            fix.title.bold()
+        );
         println!();
         // Wrap long explanation at 72 chars
         for chunk in wrap_text(&fix.explanation, 72) {

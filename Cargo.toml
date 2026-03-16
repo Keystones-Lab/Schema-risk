@@ -1,6 +1,6 @@
 [package]
 name = "schema-risk"
-version = "0.1.1"
+version = "0.1.2"
 edition = "2021"
 authors = ["Keystones-lab"]
 description = "Production-grade PostgreSQL migration safety analyzer and dangerous-command guardian"

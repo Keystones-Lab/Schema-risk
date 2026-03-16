@@ -217,21 +217,42 @@ pub fn render_impact_panel(
             "  {} Foreign keys with CASCADE may delete dependent rows",
             bullet
         );
-        eprintln!("  {} Application code referencing this table will break", bullet);
+        eprintln!(
+            "  {} Application code referencing this table will break",
+            bullet
+        );
     } else if desc_upper.contains("DROP COLUMN") || desc_upper.contains("DROP COL") {
         eprintln!("  {} Queries selecting this column will error", bullet);
         eprintln!("  {} ORM models referencing this column will break", bullet);
     } else if desc_upper.contains("RENAME") {
-        eprintln!("  {} Queries using the old name will fail immediately", bullet);
-        eprintln!("  {} Views, procedures, and constraints may need updates", bullet);
+        eprintln!(
+            "  {} Queries using the old name will fail immediately",
+            bullet
+        );
+        eprintln!(
+            "  {} Views, procedures, and constraints may need updates",
+            bullet
+        );
     } else if desc_upper.contains("TRUNCATE") {
         eprintln!("  {} Existing table data is permanently deleted", bullet);
-        eprintln!("  {} Application behavior may change with empty tables", bullet);
+        eprintln!(
+            "  {} Application behavior may change with empty tables",
+            bullet
+        );
     } else if desc_upper.contains("ALTER COLUMN") && desc_upper.contains("TYPE") {
-        eprintln!("  {} Table rewrite may block writes during migration", bullet);
-        eprintln!("  {} Data conversion or truncation errors are possible", bullet);
+        eprintln!(
+            "  {} Table rewrite may block writes during migration",
+            bullet
+        );
+        eprintln!(
+            "  {} Data conversion or truncation errors are possible",
+            bullet
+        );
     } else {
-        eprintln!("  {} Review migration impact carefully before continuing", bullet);
+        eprintln!(
+            "  {} Review migration impact carefully before continuing",
+            bullet
+        );
     }
 
     if desc_upper.contains("DROP TABLE") {
@@ -247,7 +268,13 @@ pub fn render_impact_panel(
         eprintln!("  {} Drop the column in a follow-up migration", bullet);
     }
 
-    eprintln!("\n  {} {}   {} {}", "Actor:".bold(), actor, "Time:".bold(), now);
+    eprintln!(
+        "\n  {} {}   {} {}",
+        "Actor:".bold(),
+        actor,
+        "Time:".bold(),
+        now
+    );
     eprintln!("{}", divider);
     eprintln!();
 }
