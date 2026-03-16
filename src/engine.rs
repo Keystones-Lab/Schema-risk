@@ -20,6 +20,11 @@ pub struct RiskEngine {
     pub row_counts: std::collections::HashMap<String, u64>,
     /// Optional live schema snapshot fetched via --db-url.
     pub live_schema: Option<LiveSchema>,
+    /// Target PostgreSQL major version (e.g. 14 for PG14).
+    /// Rules adapt their scoring based on this value — e.g. ADD COLUMN with
+    /// a DEFAULT is metadata-only on PG11+ but triggers a full table rewrite
+    /// on PG10 and below.  Defaults to 14 (current PostgreSQL LTS).
+    pub pg_version: u32,
 }
 
 impl RiskEngine {
@@ -27,7 +32,16 @@ impl RiskEngine {
         Self {
             row_counts,
             live_schema: None,
+            pg_version: 14,
         }
+    }
+
+    /// Set the target PostgreSQL major version for version-aware scoring.
+    ///
+    /// Example: `.with_pg_version(11)` activates PG11+ metadata-only rules.
+    pub fn with_pg_version(mut self, version: u32) -> Self {
+        self.pg_version = version;
+        self
     }
 
     /// Create an engine seeded from a live database snapshot.
@@ -43,6 +57,7 @@ impl RiskEngine {
         Self {
             row_counts,
             live_schema: Some(live),
+            pg_version: 14,
         }
     }
 
@@ -102,6 +117,7 @@ impl RiskEngine {
             index_rebuild_required,
             requires_maintenance_window,
             analyzed_at: Utc::now().to_rfc3339(),
+            pg_version: self.pg_version,
             guard_required: false,
             guard_decisions: Vec::new(),
         }
@@ -265,17 +281,19 @@ impl RiskEngine {
                     risk_level: RiskLevel::from_score(score),
                     score,
                     warning: Some(format!(
-                        "Type change on '{}.{}' may cause data loss and requires a full table rewrite{}",
-                        table, column, row_note
+                        "Type change on '{}.{}' → {} requires a full table rewrite on ALL PostgreSQL versions{}. \
+                         Use the 4-step zero-downtime pattern: add new column, backfill, drop old, rename.",
+                        table, column, new_type, row_note
                     )),
                     acquires_lock: true,
                     index_rebuild: true,
                 }]
             }
 
-            // ── ADD COLUMN (NOT NULL, no default)  ───────────────────────────
+            // ── ADD COLUMN ───────────────────────────────────────────────────
             ParsedStatement::AlterTableAddColumn { table, column } => {
                 if !column.nullable && !column.has_default {
+                    // NOT NULL with no DEFAULT — always risky on non-empty tables
                     let rows = self.row_counts.get(table).copied().unwrap_or(0);
                     let score = if rows > 0 { 50 } else { 25 };
                     vec![DetectedOperation {
@@ -293,11 +311,42 @@ impl RiskEngine {
                         acquires_lock: true,
                         index_rebuild: false,
                     }]
-                } else {
+                } else if column.has_default && self.pg_version < 11 {
+                    // PG10 and below: ADD COLUMN WITH DEFAULT triggers a full table rewrite
+                    let rows = self.row_counts.get(table).copied().unwrap_or(0);
+                    let score = if rows > 1_000_000 { 80 } else { 45 };
+                    let row_note = if rows > 0 {
+                        format!(" (~{} rows)", rows)
+                    } else {
+                        String::new()
+                    };
                     vec![DetectedOperation {
                         description: format!(
-                            "ALTER TABLE {} ADD COLUMN {} {}",
-                            table, column.name, column.data_type
+                            "ALTER TABLE {} ADD COLUMN {} {} WITH DEFAULT (PG{} — table rewrite{})",
+                            table, column.name, column.data_type, self.pg_version, row_note
+                        ),
+                        tables: vec![table.clone()],
+                        risk_level: RiskLevel::from_score(score),
+                        score,
+                        warning: Some(format!(
+                            "PostgreSQL {} rewrites the ENTIRE table when adding a column with a DEFAULT value{}. \
+                             Upgrade to PG11+ where this is a metadata-only operation.",
+                            self.pg_version, row_note
+                        )),
+                        acquires_lock: true,
+                        index_rebuild: false,
+                    }]
+                } else {
+                    // PG11+: ADD COLUMN with constant DEFAULT is metadata-only — safe!
+                    let pg_note = if column.has_default {
+                        format!(" (metadata-only on PG{})", self.pg_version)
+                    } else {
+                        String::new()
+                    };
+                    vec![DetectedOperation {
+                        description: format!(
+                            "ALTER TABLE {} ADD COLUMN {} {}{}",
+                            table, column.name, column.data_type, pg_note
                         ),
                         tables: vec![table.clone()],
                         risk_level: RiskLevel::Low,
@@ -489,22 +538,45 @@ impl RiskEngine {
             // ── SET NOT NULL ─────────────────────────────────────────────────
             ParsedStatement::AlterTableSetNotNull { table, column } => {
                 let rows = self.row_counts.get(table).copied().unwrap_or(0);
-                let score = if rows > 1_000_000 { 45 } else { 20 };
-                vec![DetectedOperation {
-                    description: format!(
-                        "ALTER TABLE {} ALTER COLUMN {} SET NOT NULL",
-                        table, column
-                    ),
-                    tables: vec![table.clone()],
-                    risk_level: RiskLevel::from_score(score),
-                    score,
-                    warning: Some(format!(
-                        "SET NOT NULL on '{}.{}' requires a full table scan to validate existing rows",
-                        table, column
-                    )),
-                    acquires_lock: true,
-                    index_rebuild: false,
-                }]
+                if self.pg_version >= 12 {
+                    // PG12+: can use NOT VALID CHECK constraint then VALIDATE to reduce lock window
+                    let score = if rows > 1_000_000 { 40 } else { 15 };
+                    vec![DetectedOperation {
+                        description: format!(
+                            "ALTER TABLE {} ALTER COLUMN {} SET NOT NULL (PG{})",
+                            table, column, self.pg_version
+                        ),
+                        tables: vec![table.clone()],
+                        risk_level: RiskLevel::from_score(score),
+                        score,
+                        warning: Some(format!(
+                            "SET NOT NULL on '{}.{}' still scans the entire table on PG{}. \
+                             Use a CHECK constraint with NOT VALID first, then VALIDATE CONSTRAINT \
+                             to minimize lock time on large tables.",
+                            table, column, self.pg_version
+                        )),
+                        acquires_lock: true,
+                        index_rebuild: false,
+                    }]
+                } else {
+                    let score = if rows > 1_000_000 { 55 } else { 25 };
+                    vec![DetectedOperation {
+                        description: format!(
+                            "ALTER TABLE {} ALTER COLUMN {} SET NOT NULL",
+                            table, column
+                        ),
+                        tables: vec![table.clone()],
+                        risk_level: RiskLevel::from_score(score),
+                        score,
+                        warning: Some(format!(
+                            "SET NOT NULL on '{}.{}' requires a full table scan to validate existing rows \
+                             and holds an ACCESS EXCLUSIVE lock throughout.",
+                            table, column
+                        )),
+                        acquires_lock: true,
+                        index_rebuild: false,
+                    }]
+                }
             }
 
             // ── CREATE TABLE ─────────────────────────────────────────────────

@@ -566,9 +566,9 @@ fn lock_mode_color(mode: LockMode) -> colored::ColoredString {
 // ─────────────────────────────────────────────
 
 pub fn render_impact(report: &ImpactReport) {
-    let sep = "─".repeat(70);
+    let sep = "─".repeat(60);
     println!("\n{}", sep.dimmed());
-    println!("  {}", "Query Impact Report".bold());
+    println!("{}", " SchemaRisk Impact Report".bold());
     println!("{}", sep.dimmed());
 
     println!(
@@ -622,7 +622,7 @@ pub fn render_impact(report: &ImpactReport) {
         }
     }
 
-    println!("\n{}", sep.dimmed());
+    println!("{}", sep.dimmed());
 }
 
 // ─────────────────────────────────────────────
@@ -630,9 +630,9 @@ pub fn render_impact(report: &ImpactReport) {
 // ─────────────────────────────────────────────
 
 pub fn render_drift(report: &DriftReport) {
-    let sep = "─".repeat(70);
+    let sep = "─".repeat(60);
     println!("\n{}", sep.dimmed());
-    println!("  {}", "Schema Drift Report".bold());
+    println!("{}", " SchemaRisk Drift Report".bold());
     println!("{}", sep.dimmed());
 
     if report.in_sync {
@@ -694,9 +694,9 @@ pub fn render_drift(report: &DriftReport) {
 pub fn render_fix_suggestions(fixes: &[FixSuggestion]) {
     use comfy_table::{Attribute, Cell, Color, ContentArrangement, Table};
 
-    let sep = "─".repeat(70);
+    let sep = "─".repeat(60);
     println!("\n{}", sep.dimmed());
-    println!("  {}", "Fix Suggestions".bold());
+    println!("{}", " SchemaRisk Fix Suggestions".bold());
     println!("{}", sep.dimmed());
 
     // ── Compact summary table ─────────────────────────────────────────────
@@ -731,7 +731,7 @@ pub fn render_fix_suggestions(fixes: &[FixSuggestion]) {
             auto_fix,
         ]);
     }
-    println!("{table}\n");
+    println!("{table}");
 
     // ── Full detail for each fix ──────────────────────────────────────────
     for fix in fixes {
@@ -741,12 +741,7 @@ pub fn render_fix_suggestions(fixes: &[FixSuggestion]) {
             FixSeverity::Info => format!("[{}]", "INFO".cyan()),
         };
 
-        println!(
-            "  {} {} {}",
-            fix.rule_id.bold(),
-            severity_badge,
-            fix.title.bold()
-        );
+        println!("\n  {} {} {}", fix.rule_id.bold(), severity_badge, fix.title.bold());
         println!();
         // Wrap long explanation at 72 chars
         for chunk in wrap_text(&fix.explanation, 72) {

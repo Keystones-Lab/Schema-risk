@@ -202,10 +202,9 @@ pub fn render_impact_panel(
         for fk in &report.fk_impacts {
             if fk.cascade {
                 eprintln!(
-                    "  {} {:<40} {}",
+                    "  {} {:<40} CASCADE DELETE",
                     bullet,
-                    shorten(&fk.from_table, 40),
-                    "CASCADE DELETE"
+                    shorten(&fk.from_table, 40)
                 );
             }
         }

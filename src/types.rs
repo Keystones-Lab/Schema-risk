@@ -158,6 +158,8 @@ pub struct MigrationReport {
     pub index_rebuild_required: bool,
     pub requires_maintenance_window: bool,
     pub analyzed_at: String,
+    /// Target PostgreSQL major version used for scoring (e.g. 14).
+    pub pg_version: u32,
     /// Whether any operation in this report requires guard confirmation.
     pub guard_required: bool,
     /// Guard decisions recorded during a `guard` run.

@@ -104,16 +104,21 @@ pub fn suggest_fixes(
                 }
             }
 
-            // ── R02: ADD COLUMN NOT NULL without DEFAULT ──────────────────
+            // ── R02 + R09: ADD COLUMN — NOT NULL without DEFAULT / DEFAULT on old PG ──
             ParsedStatement::AlterTableAddColumn { table, column } => {
+                let rows = row_counts.get(table).copied().unwrap_or(0);
+                // R02: NOT NULL without any DEFAULT will fail on non-empty tables
                 if !column.nullable && !column.has_default {
-                    let rows = row_counts.get(table).copied().unwrap_or(0);
                     suggestions.push(rule_r02_add_not_null(
                         table,
                         &column.name,
                         &column.data_type,
                         rows,
                     ));
+                }
+                // R09: Adding a column WITH DEFAULT — safe on PG11+, table-rewrite on PG10-
+                if column.has_default {
+                    suggestions.push(rule_r09_add_column_default(table, &column.name, &column.data_type, rows));
                 }
             }
 
@@ -505,9 +510,58 @@ fn rule_r07_alter_column_type(
     }
 }
 
-/// R08 — Long ACCESS EXCLUSIVE lock; suggest lock_timeout + pg_repack.
-fn rule_r08_long_lock(description: &str, est_secs: u64) -> FixSuggestion {
+/// R09 — ADD COLUMN with DEFAULT; PG10 and below rewrites the full table.
+/// On PG11+ this is a metadata-only operation (no table rewrite).
+/// We always emit an info/warning so teams know which PG version changes the behaviour.
+fn rule_r09_add_column_default(table: &str, column: &str, data_type: &str, rows: u64) -> FixSuggestion {
+    let rows_note = if rows > 0 {
+        format!(" (~{} rows)", fmt_rows(rows))
+    } else {
+        String::new()
+    };
     FixSuggestion {
+        rule_id: "R09".to_string(),
+        title: format!(
+            "ADD COLUMN '{column}' WITH DEFAULT: safe on PG11+, table-rewrite on PG10 and below"
+        ),
+        explanation: format!(
+            "PostgreSQL 11 introduced the ability to add a column with a constant DEFAULT \
+             value without rewriting the table — the default is stored in the system catalog \
+             and applied on-the-fly at query time. On PostgreSQL 10 and below, adding a column \
+             with ANY default requires a full table rewrite{rows_note} holding ACCESS EXCLUSIVE \
+             lock. Always run 'SELECT version()' to confirm your PostgreSQL version. \
+             Pass --pg-version to SchemaRisk to get accurate risk scores."
+        ),
+        fixed_sql: None,
+        migration_steps: Some(vec![
+            format!("-- If you are on PostgreSQL 11+ (recommended):"),
+            format!("-- This is already safe — no changes needed."),
+            format!("ALTER TABLE {table}"),
+            format!("  ADD COLUMN {column} {data_type} DEFAULT <your_value>;"),
+            String::new(),
+            format!("-- ── If you are on PostgreSQL 10 or below ────────────────────"),
+            format!("-- Step 1: Add column as nullable (no default, no rewrite)"),
+            format!("ALTER TABLE {table} ADD COLUMN {column} {data_type};"),
+            String::new(),
+            format!("-- Step 2: Back-fill in batches during low-traffic window"),
+            format!("UPDATE {table}"),
+            format!("  SET {column} = <your_value>"),
+            format!("  WHERE {column} IS NULL"),
+            format!("  LIMIT 10000;"),
+            String::new(),
+            format!("-- Step 3: Set NOT NULL constraint after back-fill is complete"),
+            format!("ALTER TABLE {table} ALTER COLUMN {column} SET NOT NULL;"),
+        ]),
+        severity: FixSeverity::Info,
+        docs_url: Some(
+            "https://www.postgresql.org/docs/11/release-11.html#id-1.11.6.14.4".to_string(),
+        ),
+        auto_fixable: false,
+    }
+}
+
+/// R08 — Long ACCESS EXCLUSIVE lock; suggest lock_timeout + pg_repack.
+fn rule_r08_long_lock(description: &str, est_secs: u64) -> FixSuggestion {    FixSuggestion {
         rule_id: "R08".to_string(),
         title: format!("ACCESS EXCLUSIVE lock held for ~{est_secs}s — protect with lock_timeout"),
         explanation: format!(

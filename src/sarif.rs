@@ -267,6 +267,7 @@ mod tests {
             index_rebuild_required: true,
             requires_maintenance_window: true,
             analyzed_at: "2025-01-01T00:00:00Z".to_string(),
+            pg_version: 14,
             guard_required: false,
             guard_decisions: vec![],
         };

@@ -80,6 +80,13 @@ enum Commands {
         /// tables/columns being changed by the migration.
         #[arg(long)]
         scan_dir: Option<String>,
+
+        /// Target PostgreSQL major version for version-aware risk scoring.
+        /// Rules change behaviour between major versions (e.g. ADD COLUMN DEFAULT
+        /// is metadata-only on PG11+ but rewrites the table on PG10).
+        /// Example: --pg-version 14
+        #[arg(long, default_value = "14")]
+        pg_version: u32,
     },
 
     /// Provide a detailed step-by-step explanation of each SQL statement
@@ -177,6 +184,10 @@ enum Commands {
         /// Exit with code 1 if the highest risk level reaches this threshold
         #[arg(long, default_value = "critical")]
         fail_on: FailLevel,
+
+        /// Target PostgreSQL major version for version-aware risk scoring.
+        #[arg(long, default_value = "14")]
+        pg_version: u32,
     },
 
     /// Intercept a SQL migration and gate execution behind explicit confirmation.
@@ -308,6 +319,7 @@ async fn main() {
             db_url,
             show_locks,
             scan_dir,
+            pg_version,
         } => {
             let row_counts = parse_row_counts(table_rows.as_deref());
             let fail_level: RiskLevel = fail_on.into();
@@ -320,15 +332,15 @@ async fn main() {
                             "info: Connected to database, fetched {} tables",
                             live.tables.len()
                         );
-                        RiskEngine::with_live_schema(row_counts, live)
+                        RiskEngine::with_live_schema(row_counts, live).with_pg_version(pg_version)
                     }
                     Err(e) => {
                         eprintln!("warning: Could not fetch live schema: {}", e);
-                        RiskEngine::new(row_counts)
+                        RiskEngine::new(row_counts).with_pg_version(pg_version)
                     }
                 }
             } else {
-                RiskEngine::new(row_counts)
+                RiskEngine::new(row_counts).with_pg_version(pg_version)
             };
 
             let mut reports = Vec::new();
@@ -396,11 +408,19 @@ async fn main() {
                 OutputFormat::Sarif => {
                     println!("{}", sarif::render_sarif(&reports));
                 }
-                _ => {
-                    // Markdown / GithubComment / GitlabComment — fall back to terminal
-                    for report in &reports {
-                        output::render(report, verbose);
+                OutputFormat::Markdown | OutputFormat::GithubComment | OutputFormat::GitlabComment => {
+                    // Build fix suggestions keyed by file name
+                    let mut all_fixes: HashMap<String, Vec<recommendation::FixSuggestion>> = HashMap::new();
+                    for pattern in &files {
+                        for migration in load_pattern(pattern) {
+                            if let Ok(stmts) = parser::parse(&migration.sql) {
+                                let fixes = recommendation::suggest_fixes(&stmts, &engine.row_counts);
+                                all_fixes.insert(migration.name.clone(), fixes);
+                            }
+                        }
                     }
+                    let md = ci::render_ci_report(&reports, &all_fixes, None, ci::CiFormat::GithubComment);
+                    println!("{}", md);
                 }
             }
 
@@ -619,6 +639,7 @@ async fn main() {
             scan_dir,
             table_rows,
             fail_on,
+            pg_version,
         } => {
             let row_counts = parse_row_counts(table_rows.as_deref());
             let fail_level: RiskLevel = fail_on.into();
@@ -631,15 +652,15 @@ async fn main() {
                             "info: Connected to DB, fetched {} tables",
                             live.tables.len()
                         );
-                        RiskEngine::with_live_schema(row_counts, live)
+                        RiskEngine::with_live_schema(row_counts, live).with_pg_version(pg_version)
                     }
                     Err(e) => {
                         eprintln!("warning: DB connection failed (offline mode): {}", e);
-                        RiskEngine::new(row_counts)
+                        RiskEngine::new(row_counts).with_pg_version(pg_version)
                     }
                 }
             } else {
-                RiskEngine::new(row_counts)
+                RiskEngine::new(row_counts).with_pg_version(pg_version)
             };
 
             let mut reports = Vec::new();

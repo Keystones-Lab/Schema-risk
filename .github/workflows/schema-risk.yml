@@ -14,6 +14,10 @@ permissions:
 env:
   SCHEMA_RISK_VERSION: "2.0.0"
   CARGO_TERM_COLOR: always
+  ## Set to your production PostgreSQL major version (e.g. 14, 15, 16).
+  ## This enables version-aware risk scoring — e.g. ADD COLUMN WITH DEFAULT
+  ## is metadata-only on PG11+ but requires a full table rewrite on PG10.
+  PG_VERSION: "14"
 
 jobs:
   schema-risk:
@@ -84,6 +88,7 @@ jobs:
             --files $FILES \
             --format github-comment \
             --fail-on critical \
+            --pg-version "$PG_VERSION" \
             ${SCHEMA_RISK_DB_URL:+--db-url "$SCHEMA_RISK_DB_URL"} \
             > /tmp/schema_risk_report.md 2>&1 || EXITCODE=$?
 
