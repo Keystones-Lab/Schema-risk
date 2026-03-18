@@ -16,7 +16,7 @@ use std::path::Path;
 pub const DB_URL_ENV_VARS: &[&str] = &["DATABASE_URL", "DB_URL", "POSTGRES_URL"];
 
 /// Result of loading environment configuration.
-#[derive(Debug, Clone)]
+#[derive(Debug, Clone, Default)]
 pub struct EnvConfig {
     /// Database URL resolved from environment (if found).
     pub database_url: Option<String>,
@@ -26,17 +26,6 @@ pub struct EnvConfig {
     pub dotenv_path: Option<String>,
     /// Which environment variable the database URL came from (if any).
     pub database_url_source: Option<String>,
-}
-
-impl Default for EnvConfig {
-    fn default() -> Self {
-        Self {
-            database_url: None,
-            dotenv_loaded: false,
-            dotenv_path: None,
-            database_url_source: None,
-        }
-    }
 }
 
 impl EnvConfig {
