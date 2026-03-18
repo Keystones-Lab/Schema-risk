@@ -149,10 +149,7 @@ mod tests {
         std::env::set_var("POSTGRES_URL", "postgres://fallback");
         let config = EnvConfig::load();
         assert_eq!(config.database_url, Some("postgres://fallback".to_string()));
-        assert_eq!(
-            config.database_url_source,
-            Some("POSTGRES_URL".to_string())
-        );
+        assert_eq!(config.database_url_source, Some("POSTGRES_URL".to_string()));
 
         // Set DB_URL (higher priority)
         std::env::set_var("DB_URL", "postgres://medium");
@@ -164,10 +161,7 @@ mod tests {
         std::env::set_var("DATABASE_URL", "postgres://primary");
         let config = EnvConfig::load();
         assert_eq!(config.database_url, Some("postgres://primary".to_string()));
-        assert_eq!(
-            config.database_url_source,
-            Some("DATABASE_URL".to_string())
-        );
+        assert_eq!(config.database_url_source, Some("DATABASE_URL".to_string()));
 
         // Cleanup
         clear_db_env_vars();

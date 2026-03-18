@@ -47,10 +47,7 @@ impl RiskEngine {
 
     /// Create an engine seeded from a live database snapshot.
     /// Row counts from `live` override any manually provided `row_counts`.
-    pub fn with_live_schema(
-        mut row_counts: HashMap<String, u64>,
-        live: LiveSchema,
-    ) -> Self {
+    pub fn with_live_schema(mut row_counts: HashMap<String, u64>, live: LiveSchema) -> Self {
         // Merge live row counts (live wins)
         for (name, meta) in &live.tables {
             row_counts.insert(name.clone(), meta.estimated_rows.max(0) as u64);
@@ -98,9 +95,9 @@ impl RiskEngine {
 
         let warnings: Vec<String> = Self::dedupe_preserve_order(
             operations
-            .iter()
-            .filter_map(|o| o.warning.clone())
-            .collect(),
+                .iter()
+                .filter_map(|o| o.warning.clone())
+                .collect(),
         );
 
         let recommendations = Self::dedupe_preserve_order(self.build_recommendations(

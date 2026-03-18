@@ -613,7 +613,7 @@ fn build_impact_summary(report: &MigrationReport, op_desc: &str) -> String {
 // Code Scanning Guard Mode
 // ─────────────────────────────────────────────
 
-use crate::impact::{ExtractedSql, SqlExtractor, SqlExtractionReport};
+use crate::impact::{ExtractedSql, SqlExtractionReport, SqlExtractor};
 
 /// Options for scanning source code for dangerous SQL.
 #[derive(Default)]
@@ -671,7 +671,7 @@ pub struct CodeGuardStats {
 /// 3. Identifies dangerous operations that require confirmation
 /// 4. Returns a comprehensive report
 pub fn guard_code_sql(opts: CodeGuardOptions) -> crate::error::Result<CodeGuardReport> {
-    let _actor = detect_actor();  // Reserved for future use
+    let _actor = detect_actor(); // Reserved for future use
     let extractor = SqlExtractor::new();
     let extraction_report = extractor.scan_directory(&opts.scan_dir);
 
@@ -796,7 +796,11 @@ pub fn render_code_guard_report(report: &CodeGuardReport, actor: &ActorKind) {
             };
 
             eprintln!("  [{}] {} ({})", idx + 1, risk_str, dq.source.context);
-            eprintln!("      File: {}:{}", dq.source.source_file.cyan(), dq.source.line);
+            eprintln!(
+                "      File: {}:{}",
+                dq.source.source_file.cyan(),
+                dq.source.line
+            );
             eprintln!(
                 "      SQL: {}",
                 dq.source.sql.chars().take(60).collect::<String>().dimmed()

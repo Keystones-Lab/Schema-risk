@@ -404,69 +404,262 @@ impl SqlExtractor {
         let mut patterns = Vec::new();
 
         // Helper to add patterns
-        let mut add = |pattern: &str, ctx: SqlContext, exts: &[&'static str], group: usize, conf: f32| {
-            if let Ok(re) = regex::Regex::new(pattern) {
-                patterns.push(SqlExtractionPattern {
-                    regex: re,
-                    context: ctx,
-                    extensions: exts.to_vec(),
-                    capture_group: group,
-                    confidence: conf,
-                });
-            }
-        };
+        let mut add =
+            |pattern: &str, ctx: SqlContext, exts: &[&'static str], group: usize, conf: f32| {
+                if let Ok(re) = regex::Regex::new(pattern) {
+                    patterns.push(SqlExtractionPattern {
+                        regex: re,
+                        context: ctx,
+                        extensions: exts.to_vec(),
+                        capture_group: group,
+                        confidence: conf,
+                    });
+                }
+            };
 
         // ── Prisma (JavaScript/TypeScript) ───────────────────────────────────
-        add(r#"\$queryRaw\s*`([^`]+)`"#, SqlContext::PrismaRaw, &["ts", "js", "tsx", "jsx"], 1, 0.95);
-        add(r#"\$executeRaw\s*`([^`]+)`"#, SqlContext::PrismaRaw, &["ts", "js", "tsx", "jsx"], 1, 0.95);
-        add(r#"Prisma\.sql\s*`([^`]+)`"#, SqlContext::PrismaRaw, &["ts", "js", "tsx", "jsx"], 1, 0.9);
+        add(
+            r#"\$queryRaw\s*`([^`]+)`"#,
+            SqlContext::PrismaRaw,
+            &["ts", "js", "tsx", "jsx"],
+            1,
+            0.95,
+        );
+        add(
+            r#"\$executeRaw\s*`([^`]+)`"#,
+            SqlContext::PrismaRaw,
+            &["ts", "js", "tsx", "jsx"],
+            1,
+            0.95,
+        );
+        add(
+            r#"Prisma\.sql\s*`([^`]+)`"#,
+            SqlContext::PrismaRaw,
+            &["ts", "js", "tsx", "jsx"],
+            1,
+            0.9,
+        );
 
         // ── TypeORM (JavaScript/TypeScript) ──────────────────────────────────
-        add(r#"\.query\s*\(\s*["'`]([^"'`]+)["'`]"#, SqlContext::TypeOrm, &["ts", "js", "tsx", "jsx"], 1, 0.85);
-        add(r#"createQueryBuilder\s*\(\s*["']([^"']+)["']"#, SqlContext::TypeOrm, &["ts", "js", "tsx", "jsx"], 1, 0.8);
-        add(r#"\.createQueryRunner\(\)\.query\s*\(\s*["'`]([^"'`]+)["'`]"#, SqlContext::TypeOrm, &["ts", "js"], 1, 0.9);
+        add(
+            r#"\.query\s*\(\s*["'`]([^"'`]+)["'`]"#,
+            SqlContext::TypeOrm,
+            &["ts", "js", "tsx", "jsx"],
+            1,
+            0.85,
+        );
+        add(
+            r#"createQueryBuilder\s*\(\s*["']([^"']+)["']"#,
+            SqlContext::TypeOrm,
+            &["ts", "js", "tsx", "jsx"],
+            1,
+            0.8,
+        );
+        add(
+            r#"\.createQueryRunner\(\)\.query\s*\(\s*["'`]([^"'`]+)["'`]"#,
+            SqlContext::TypeOrm,
+            &["ts", "js"],
+            1,
+            0.9,
+        );
 
         // ── Sequelize (JavaScript/TypeScript) ────────────────────────────────
-        add(r#"sequelize\.query\s*\(\s*["'`]([^"'`]+)["'`]"#, SqlContext::Sequelize, &["ts", "js", "tsx", "jsx"], 1, 0.9);
-        add(r#"QueryTypes\.\w+.*["'`]([^"'`]+)["'`]"#, SqlContext::Sequelize, &["ts", "js"], 1, 0.85);
+        add(
+            r#"sequelize\.query\s*\(\s*["'`]([^"'`]+)["'`]"#,
+            SqlContext::Sequelize,
+            &["ts", "js", "tsx", "jsx"],
+            1,
+            0.9,
+        );
+        add(
+            r#"QueryTypes\.\w+.*["'`]([^"'`]+)["'`]"#,
+            SqlContext::Sequelize,
+            &["ts", "js"],
+            1,
+            0.85,
+        );
 
         // ── SQLAlchemy (Python) ──────────────────────────────────────────────
-        add(r#"text\s*\(\s*["']([^"']+)["']"#, SqlContext::SqlAlchemy, &["py"], 1, 0.9);
-        add(r#"execute\s*\(\s*["']([^"']+)["']"#, SqlContext::SqlAlchemy, &["py"], 1, 0.85);
-        add(r#"session\.execute\s*\(\s*["']([^"']+)["']"#, SqlContext::SqlAlchemy, &["py"], 1, 0.9);
-        add(r#"connection\.execute\s*\(\s*["']([^"']+)["']"#, SqlContext::SqlAlchemy, &["py"], 1, 0.9);
+        add(
+            r#"text\s*\(\s*["']([^"']+)["']"#,
+            SqlContext::SqlAlchemy,
+            &["py"],
+            1,
+            0.9,
+        );
+        add(
+            r#"execute\s*\(\s*["']([^"']+)["']"#,
+            SqlContext::SqlAlchemy,
+            &["py"],
+            1,
+            0.85,
+        );
+        add(
+            r#"session\.execute\s*\(\s*["']([^"']+)["']"#,
+            SqlContext::SqlAlchemy,
+            &["py"],
+            1,
+            0.9,
+        );
+        add(
+            r#"connection\.execute\s*\(\s*["']([^"']+)["']"#,
+            SqlContext::SqlAlchemy,
+            &["py"],
+            1,
+            0.9,
+        );
 
         // ── Django (Python) ──────────────────────────────────────────────────
-        add(r#"cursor\.execute\s*\(\s*["']([^"']+)["']"#, SqlContext::SqlAlchemy, &["py"], 1, 0.9);
-        add(r#"\.raw\s*\(\s*["']([^"']+)["']"#, SqlContext::SqlAlchemy, &["py"], 1, 0.85);
+        add(
+            r#"cursor\.execute\s*\(\s*["']([^"']+)["']"#,
+            SqlContext::SqlAlchemy,
+            &["py"],
+            1,
+            0.9,
+        );
+        add(
+            r#"\.raw\s*\(\s*["']([^"']+)["']"#,
+            SqlContext::SqlAlchemy,
+            &["py"],
+            1,
+            0.85,
+        );
 
         // ── GORM (Go) ────────────────────────────────────────────────────────
-        add(r#"\.Raw\s*\(\s*["'`]([^"'`]+)["'`]"#, SqlContext::Gorm, &["go"], 1, 0.9);
-        add(r#"\.Exec\s*\(\s*["'`]([^"'`]+)["'`]"#, SqlContext::Gorm, &["go"], 1, 0.9);
-        add(r#"db\.Query\s*\(\s*["'`]([^"'`]+)["'`]"#, SqlContext::Gorm, &["go"], 1, 0.85);
+        add(
+            r#"\.Raw\s*\(\s*["'`]([^"'`]+)["'`]"#,
+            SqlContext::Gorm,
+            &["go"],
+            1,
+            0.9,
+        );
+        add(
+            r#"\.Exec\s*\(\s*["'`]([^"'`]+)["'`]"#,
+            SqlContext::Gorm,
+            &["go"],
+            1,
+            0.9,
+        );
+        add(
+            r#"db\.Query\s*\(\s*["'`]([^"'`]+)["'`]"#,
+            SqlContext::Gorm,
+            &["go"],
+            1,
+            0.85,
+        );
 
         // ── Diesel (Rust) ────────────────────────────────────────────────────
-        add(r#"sql_query\s*\(\s*["']([^"']+)["']"#, SqlContext::Diesel, &["rs"], 1, 0.9);
-        add(r#"diesel::sql_query\s*\(\s*["']([^"']+)["']"#, SqlContext::Diesel, &["rs"], 1, 0.95);
+        add(
+            r#"sql_query\s*\(\s*["']([^"']+)["']"#,
+            SqlContext::Diesel,
+            &["rs"],
+            1,
+            0.9,
+        );
+        add(
+            r#"diesel::sql_query\s*\(\s*["']([^"']+)["']"#,
+            SqlContext::Diesel,
+            &["rs"],
+            1,
+            0.95,
+        );
 
         // ── Entity Framework (C#) ────────────────────────────────────────────
-        add(r#"\.FromSqlRaw\s*\(\s*["']([^"']+)["']"#, SqlContext::EntityFramework, &["cs"], 1, 0.9);
-        add(r#"\.ExecuteSqlRaw\s*\(\s*["']([^"']+)["']"#, SqlContext::EntityFramework, &["cs"], 1, 0.9);
-        add(r#"SqlQuery<[^>]+>\s*\(\s*["']([^"']+)["']"#, SqlContext::EntityFramework, &["cs"], 1, 0.85);
+        add(
+            r#"\.FromSqlRaw\s*\(\s*["']([^"']+)["']"#,
+            SqlContext::EntityFramework,
+            &["cs"],
+            1,
+            0.9,
+        );
+        add(
+            r#"\.ExecuteSqlRaw\s*\(\s*["']([^"']+)["']"#,
+            SqlContext::EntityFramework,
+            &["cs"],
+            1,
+            0.9,
+        );
+        add(
+            r#"SqlQuery<[^>]+>\s*\(\s*["']([^"']+)["']"#,
+            SqlContext::EntityFramework,
+            &["cs"],
+            1,
+            0.85,
+        );
 
         // ── Laravel Eloquent (PHP) ───────────────────────────────────────────
-        add(r#"DB::raw\s*\(\s*["']([^"']+)["']"#, SqlContext::Eloquent, &["php"], 1, 0.9);
-        add(r#"DB::statement\s*\(\s*["']([^"']+)["']"#, SqlContext::Eloquent, &["php"], 1, 0.9);
-        add(r#"DB::select\s*\(\s*["']([^"']+)["']"#, SqlContext::Eloquent, &["php"], 1, 0.85);
-        add(r#"DB::insert\s*\(\s*["']([^"']+)["']"#, SqlContext::Eloquent, &["php"], 1, 0.85);
-        add(r#"DB::update\s*\(\s*["']([^"']+)["']"#, SqlContext::Eloquent, &["php"], 1, 0.85);
-        add(r#"DB::delete\s*\(\s*["']([^"']+)["']"#, SqlContext::Eloquent, &["php"], 1, 0.85);
+        add(
+            r#"DB::raw\s*\(\s*["']([^"']+)["']"#,
+            SqlContext::Eloquent,
+            &["php"],
+            1,
+            0.9,
+        );
+        add(
+            r#"DB::statement\s*\(\s*["']([^"']+)["']"#,
+            SqlContext::Eloquent,
+            &["php"],
+            1,
+            0.9,
+        );
+        add(
+            r#"DB::select\s*\(\s*["']([^"']+)["']"#,
+            SqlContext::Eloquent,
+            &["php"],
+            1,
+            0.85,
+        );
+        add(
+            r#"DB::insert\s*\(\s*["']([^"']+)["']"#,
+            SqlContext::Eloquent,
+            &["php"],
+            1,
+            0.85,
+        );
+        add(
+            r#"DB::update\s*\(\s*["']([^"']+)["']"#,
+            SqlContext::Eloquent,
+            &["php"],
+            1,
+            0.85,
+        );
+        add(
+            r#"DB::delete\s*\(\s*["']([^"']+)["']"#,
+            SqlContext::Eloquent,
+            &["php"],
+            1,
+            0.85,
+        );
 
         // ── Rails ActiveRecord (Ruby) ────────────────────────────────────────
-        add(r#"execute\s*\(\s*["']([^"']+)["']"#, SqlContext::ActiveRecord, &["rb"], 1, 0.85);
-        add(r#"exec_query\s*\(\s*["']([^"']+)["']"#, SqlContext::ActiveRecord, &["rb"], 1, 0.9);
-        add(r#"connection\.execute\s*\(\s*["']([^"']+)["']"#, SqlContext::ActiveRecord, &["rb"], 1, 0.9);
-        add(r#"find_by_sql\s*\(\s*["']([^"']+)["']"#, SqlContext::ActiveRecord, &["rb"], 1, 0.9);
+        add(
+            r#"execute\s*\(\s*["']([^"']+)["']"#,
+            SqlContext::ActiveRecord,
+            &["rb"],
+            1,
+            0.85,
+        );
+        add(
+            r#"exec_query\s*\(\s*["']([^"']+)["']"#,
+            SqlContext::ActiveRecord,
+            &["rb"],
+            1,
+            0.9,
+        );
+        add(
+            r#"connection\.execute\s*\(\s*["']([^"']+)["']"#,
+            SqlContext::ActiveRecord,
+            &["rb"],
+            1,
+            0.9,
+        );
+        add(
+            r#"find_by_sql\s*\(\s*["']([^"']+)["']"#,
+            SqlContext::ActiveRecord,
+            &["rb"],
+            1,
+            0.9,
+        );
 
         // ── Generic SQL string patterns (lower confidence) ───────────────────
         // These match SQL keywords in string literals
@@ -483,10 +676,7 @@ impl SqlExtractor {
 
     /// Extract SQL from a single file.
     pub fn extract_from_file(&self, path: &Path) -> Vec<ExtractedSql> {
-        let ext = path
-            .extension()
-            .and_then(|e| e.to_str())
-            .unwrap_or("");
+        let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("");
 
         let content = match std::fs::read_to_string(path) {
             Ok(c) => c,
@@ -543,8 +733,8 @@ impl SqlExtractor {
     fn looks_like_sql(s: &str) -> bool {
         let upper = s.to_uppercase();
         let sql_keywords = [
-            "SELECT", "INSERT", "UPDATE", "DELETE", "CREATE", "ALTER", "DROP",
-            "TRUNCATE", "FROM", "WHERE", "JOIN", "TABLE", "INDEX", "COLUMN",
+            "SELECT", "INSERT", "UPDATE", "DELETE", "CREATE", "ALTER", "DROP", "TRUNCATE", "FROM",
+            "WHERE", "JOIN", "TABLE", "INDEX", "COLUMN",
         ];
         sql_keywords.iter().any(|kw| upper.contains(kw))
     }
@@ -602,7 +792,8 @@ mod tests {
     #[test]
     fn test_sql_extractor_prisma() {
         let extractor = SqlExtractor::new();
-        let code = r#"const result = await prisma.$queryRaw`SELECT * FROM users WHERE id = ${id}`;"#;
+        let code =
+            r#"const result = await prisma.$queryRaw`SELECT * FROM users WHERE id = ${id}`;"#;
 
         // Create a temp file
         let temp_dir = std::env::temp_dir().join("schema-risk-test-prisma");
@@ -638,17 +829,25 @@ mod tests {
     #[test]
     fn test_dangerous_sql_detection() {
         assert!(SqlExtractor::is_dangerous_sql("DROP TABLE users"));
-        assert!(SqlExtractor::is_dangerous_sql("DELETE FROM users WHERE id = 1"));
+        assert!(SqlExtractor::is_dangerous_sql(
+            "DELETE FROM users WHERE id = 1"
+        ));
         assert!(SqlExtractor::is_dangerous_sql("TRUNCATE TABLE sessions"));
-        assert!(SqlExtractor::is_dangerous_sql("ALTER TABLE users ADD COLUMN age INT"));
+        assert!(SqlExtractor::is_dangerous_sql(
+            "ALTER TABLE users ADD COLUMN age INT"
+        ));
         assert!(!SqlExtractor::is_dangerous_sql("SELECT * FROM users"));
-        assert!(!SqlExtractor::is_dangerous_sql("INSERT INTO users (name) VALUES ('test')"));
+        assert!(!SqlExtractor::is_dangerous_sql(
+            "INSERT INTO users (name) VALUES ('test')"
+        ));
     }
 
     #[test]
     fn test_looks_like_sql() {
         assert!(SqlExtractor::looks_like_sql("SELECT * FROM users"));
-        assert!(SqlExtractor::looks_like_sql("INSERT INTO users (name) VALUES ('test')"));
+        assert!(SqlExtractor::looks_like_sql(
+            "INSERT INTO users (name) VALUES ('test')"
+        ));
         assert!(SqlExtractor::looks_like_sql("DROP TABLE users"));
         assert!(!SqlExtractor::looks_like_sql("Hello world"));
         assert!(!SqlExtractor::looks_like_sql("const x = 5"));

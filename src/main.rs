@@ -849,7 +849,10 @@ async fn main() {
                                 })
                             }).collect::<Vec<_>>(),
                         });
-                        println!("{}", serde_json::to_string_pretty(&json).unwrap_or_default());
+                        println!(
+                            "{}",
+                            serde_json::to_string_pretty(&json).unwrap_or_default()
+                        );
                     }
                     _ => {
                         guard::render_code_guard_report(&report, &actor);
@@ -957,14 +960,12 @@ async fn main() {
                     println!();
                     println!(
                         "{}",
-                        "────────────────────────────────────────────────────────────"
-                            .dimmed()
+                        "────────────────────────────────────────────────────────────".dimmed()
                     );
                     println!(" {} Migration Discovery", "SchemaRisk".bold().cyan());
                     println!(
                         "{}",
-                        "────────────────────────────────────────────────────────────"
-                            .dimmed()
+                        "────────────────────────────────────────────────────────────".dimmed()
                     );
                     println!();
 
@@ -988,7 +989,11 @@ async fn main() {
                         println!(
                             "  Found {} migration director{} with {} SQL file{}",
                             report.discovered.len().to_string().green().bold(),
-                            if report.discovered.len() == 1 { "y" } else { "ies" },
+                            if report.discovered.len() == 1 {
+                                "y"
+                            } else {
+                                "ies"
+                            },
                             report.total_sql_files.to_string().cyan(),
                             if report.total_sql_files == 1 { "" } else { "s" }
                         );
@@ -1011,10 +1016,7 @@ async fn main() {
 
                             if verbose {
                                 for sql_file in &disc.sql_files {
-                                    println!(
-                                        "      • {}",
-                                        sql_file.display().to_string().dimmed()
-                                    );
+                                    println!("      • {}", sql_file.display().to_string().dimmed());
                                 }
                             }
                         }
@@ -1023,8 +1025,7 @@ async fn main() {
                     println!();
                     println!(
                         "{}",
-                        "────────────────────────────────────────────────────────────"
-                            .dimmed()
+                        "────────────────────────────────────────────────────────────".dimmed()
                     );
                 }
             }
@@ -1041,7 +1042,7 @@ async fn main() {
             use colored::Colorize;
 
             let cfg = config::load(config_path.as_deref());
-            let _scanner = ImpactScanner::new(vec![], vec![]);  // Will be used with SQL extraction
+            let _scanner = ImpactScanner::new(vec![], vec![]); // Will be used with SQL extraction
 
             // For now, show a placeholder message - full implementation comes in the guard enhancement step
             match format {
@@ -1051,20 +1052,21 @@ async fn main() {
                         "directory": dir,
                         "message": "SQL extraction scan in progress"
                     });
-                    println!("{}", serde_json::to_string_pretty(&result).unwrap_or_default());
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&result).unwrap_or_default()
+                    );
                 }
                 _ => {
                     println!();
                     println!(
                         "{}",
-                        "────────────────────────────────────────────────────────────"
-                            .dimmed()
+                        "────────────────────────────────────────────────────────────".dimmed()
                     );
                     println!(" {} Code SQL Scanner", "SchemaRisk".bold().cyan());
                     println!(
                         "{}",
-                        "────────────────────────────────────────────────────────────"
-                            .dimmed()
+                        "────────────────────────────────────────────────────────────".dimmed()
                     );
                     println!();
                     println!("  Scanning {} for SQL queries...", dir.cyan());
@@ -1096,8 +1098,7 @@ async fn main() {
                     println!();
                     println!(
                         "{}",
-                        "────────────────────────────────────────────────────────────"
-                            .dimmed()
+                        "────────────────────────────────────────────────────────────".dimmed()
                     );
                 }
             }

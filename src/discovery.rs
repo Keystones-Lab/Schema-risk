@@ -33,11 +33,7 @@ pub const KNOWN_PATTERNS: &[(&str, &str, &str)] = &[
         "Laravel Eloquent migrations",
     ),
     ("db/migrations", "Knex", "Knex.js migrations"),
-    (
-        "diesel/migrations",
-        "Diesel",
-        "Diesel Rust ORM migrations",
-    ),
+    ("diesel/migrations", "Diesel", "Diesel Rust ORM migrations"),
     (
         "schema/migrations",
         "Generic",
