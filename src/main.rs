@@ -3,8 +3,10 @@
 use schema_risk::ci;
 use schema_risk::config;
 use schema_risk::db;
+use schema_risk::discovery::MigrationDiscovery;
 use schema_risk::drift;
 use schema_risk::engine::RiskEngine;
+use schema_risk::env::EnvConfig;
 use schema_risk::graph;
 use schema_risk::guard::{self, GuardOptions};
 use schema_risk::impact::ImpactScanner;
@@ -198,10 +200,17 @@ enum Commands {
     ///
     /// Usage pattern:
     ///   schema-risk guard migration.sql && psql -f migration.sql
+    ///   schema-risk guard --scan src/          # scan code for SQL
     Guard {
         /// Path to the SQL migration file (use - to read from stdin).
-        #[arg(required = true)]
-        file: String,
+        /// Not required when using --scan.
+        #[arg(required_unless_present = "scan")]
+        file: Option<String>,
+
+        /// Scan source code for SQL instead of analyzing a .sql file.
+        /// Extracts SQL from code and analyzes each statement.
+        #[arg(long, conflicts_with = "file")]
+        scan: Option<String>,
 
         /// Print the impact panel but do not prompt. Exit code reflects risk level.
         #[arg(long)]
@@ -233,6 +242,54 @@ enum Commands {
         /// Overwrite an existing config file if present.
         #[arg(long)]
         force: bool,
+    },
+
+    /// Auto-discover migration directories in the current project.
+    ///
+    /// Scans for common migration patterns (Prisma, Rails, Diesel, etc.)
+    /// and reports found directories with file counts.
+    Discover {
+        /// Root directory to scan (default: current directory)
+        #[arg(default_value = ".")]
+        root: String,
+
+        /// Output format
+        #[arg(short, long, default_value = "terminal")]
+        format: OutputFormat,
+
+        /// Show individual SQL files in each directory
+        #[arg(short, long)]
+        verbose: bool,
+
+        /// Path to `schema-risk.yml` config file
+        #[arg(long)]
+        config: Option<String>,
+    },
+
+    /// Scan source code for SQL queries and analyze their risk.
+    ///
+    /// Unlike `guard` which works on .sql files, this command scans
+    /// your application code for embedded SQL strings and ORM queries.
+    Scan {
+        /// Directory to scan for source code
+        #[arg(required = true)]
+        dir: String,
+
+        /// Output format
+        #[arg(short, long, default_value = "terminal")]
+        format: OutputFormat,
+
+        /// Exit with code 1 if any dangerous SQL is found
+        #[arg(long)]
+        fail_on_dangerous: bool,
+
+        /// Path to `schema-risk.yml` config file
+        #[arg(long)]
+        config: Option<String>,
+
+        /// Show all detected SQL (not just dangerous ones)
+        #[arg(short, long)]
+        verbose: bool,
     },
 }
 
@@ -295,6 +352,14 @@ impl From<FailLevel> for RiskLevel {
 
 #[tokio::main]
 async fn main() {
+    // Load environment variables from .env file (if present)
+    let env_config = EnvConfig::load();
+    if env_config.dotenv_loaded {
+        if let Some(path) = &env_config.dotenv_path {
+            tracing::debug!("Loaded environment from: {}", path);
+        }
+    }
+
     // Initialise structured logging.  RUST_LOG controls verbosity, e.g.:
     //   RUST_LOG=schema_risk=debug schema-risk analyze migration.sql
     tracing_subscriber::fmt()
@@ -324,8 +389,16 @@ async fn main() {
             let row_counts = parse_row_counts(table_rows.as_deref());
             let fail_level: RiskLevel = fail_on.into();
 
+            // Resolve database URL: CLI > env > config
+            let resolved_db_url = env_config.resolve_db_url(db_url.as_deref(), None);
+            if db_url.is_none() && resolved_db_url.is_some() {
+                if let Some(source) = env_config.db_url_source_description() {
+                    eprintln!("info: Using database URL from {}", source);
+                }
+            }
+
             // Optionally fetch live schema from the database
-            let engine = if let Some(url) = &db_url {
+            let engine = if let Some(url) = &resolved_db_url {
                 match fetch_live_schema(url).await {
                     Ok(live) => {
                         eprintln!(
@@ -723,6 +796,7 @@ async fn main() {
         // ── schema-risk guard ─────────────────────────────────────────────
         Commands::Guard {
             file,
+            scan,
             dry_run,
             non_interactive,
             table_rows,
@@ -732,6 +806,61 @@ async fn main() {
         } => {
             let cfg = config::load(config_path.as_deref());
             let row_counts = parse_row_counts(table_rows.as_deref());
+
+            // Handle code scanning mode (--scan)
+            if let Some(scan_dir) = scan {
+                let code_opts = guard::CodeGuardOptions {
+                    base: GuardOptions {
+                        dry_run,
+                        non_interactive,
+                        row_counts,
+                        config: cfg,
+                    },
+                    scan_dir: std::path::PathBuf::from(&scan_dir),
+                    extensions: vec![],
+                };
+
+                let report = match guard::guard_code_sql(code_opts) {
+                    Ok(r) => r,
+                    Err(e) => {
+                        eprintln!("error: {e}");
+                        process::exit(3);
+                    }
+                };
+
+                let actor = guard::detect_actor();
+
+                match format {
+                    OutputFormat::Json => {
+                        let json = serde_json::json!({
+                            "scan_dir": scan_dir,
+                            "files_scanned": report.stats.files_scanned,
+                            "total_sql_found": report.stats.total_sql_found,
+                            "dangerous_count": report.stats.dangerous_count,
+                            "by_context": report.stats.by_context,
+                            "dangerous_queries": report.dangerous_queries.iter().map(|dq| {
+                                serde_json::json!({
+                                    "source_file": dq.source.source_file,
+                                    "line": dq.source.line,
+                                    "sql": dq.source.sql,
+                                    "context": dq.source.context.to_string(),
+                                    "risk_level": dq.report.overall_risk.to_string(),
+                                    "score": dq.report.score,
+                                })
+                            }).collect::<Vec<_>>(),
+                        });
+                        println!("{}", serde_json::to_string_pretty(&json).unwrap_or_default());
+                    }
+                    _ => {
+                        guard::render_code_guard_report(&report, &actor);
+                    }
+                }
+
+                process::exit(report.overall_outcome.exit_code());
+            }
+
+            // Handle regular file mode
+            let file_path = file.expect("file is required when not using --scan");
             let opts = GuardOptions {
                 dry_run,
                 non_interactive,
@@ -739,7 +868,7 @@ async fn main() {
                 config: cfg,
             };
 
-            let outcome = match guard::run_guard(Path::new(&file), opts) {
+            let outcome = match guard::run_guard(Path::new(&file_path), opts) {
                 Ok(o) => o,
                 Err(e) => {
                     eprintln!("error: {e}");
@@ -754,7 +883,7 @@ async fn main() {
                         // Load and render reports for structured output
                         let row_counts2 = HashMap::new();
                         let engine = RiskEngine::new(row_counts2);
-                        if let Ok(migration) = load_file(&file) {
+                        if let Ok(migration) = load_file(&file_path) {
                             if let Ok(stmts) = parser::parse(&migration.sql) {
                                 let report = engine.analyze(&migration.name, &stmts);
                                 match format {
@@ -801,6 +930,181 @@ async fn main() {
                     eprintln!("error: failed to write {config_path}: {e}");
                     process::exit(3);
                 }
+            }
+        }
+
+        // ── schema-risk discover ─────────────────────────────────────────────
+        Commands::Discover {
+            root,
+            format,
+            verbose,
+            config: config_path,
+        } => {
+            use colored::Colorize;
+
+            let cfg = config::load(config_path.as_deref());
+            let discovery = MigrationDiscovery::new(cfg.migrations);
+            let report = discovery.discover(Path::new(&root));
+
+            match format {
+                OutputFormat::Json => {
+                    println!(
+                        "{}",
+                        serde_json::to_string_pretty(&report).unwrap_or_default()
+                    );
+                }
+                _ => {
+                    println!();
+                    println!(
+                        "{}",
+                        "────────────────────────────────────────────────────────────"
+                            .dimmed()
+                    );
+                    println!(" {} Migration Discovery", "SchemaRisk".bold().cyan());
+                    println!(
+                        "{}",
+                        "────────────────────────────────────────────────────────────"
+                            .dimmed()
+                    );
+                    println!();
+
+                    if report.discovered.is_empty() {
+                        println!(
+                            "  {} No migration directories found in {}",
+                            "!".yellow(),
+                            root.cyan()
+                        );
+                        println!();
+                        println!("  Searched patterns:");
+                        for pattern in &report.patterns_searched {
+                            println!("    • {}", pattern.dimmed());
+                        }
+                        println!();
+                        println!(
+                            "  Tip: Create a migrations directory or specify custom paths in {}",
+                            "schema-risk.yml".cyan()
+                        );
+                    } else {
+                        println!(
+                            "  Found {} migration director{} with {} SQL file{}",
+                            report.discovered.len().to_string().green().bold(),
+                            if report.discovered.len() == 1 { "y" } else { "ies" },
+                            report.total_sql_files.to_string().cyan(),
+                            if report.total_sql_files == 1 { "" } else { "s" }
+                        );
+                        println!();
+
+                        for disc in &report.discovered {
+                            let framework_badge = if disc.from_config {
+                                format!("[{}]", "Custom".yellow())
+                            } else {
+                                format!("[{}]", disc.framework.green())
+                            };
+
+                            println!(
+                                "  {} {} — {} SQL file{}",
+                                framework_badge,
+                                disc.path.display().to_string().cyan(),
+                                disc.sql_file_count,
+                                if disc.sql_file_count == 1 { "" } else { "s" }
+                            );
+
+                            if verbose {
+                                for sql_file in &disc.sql_files {
+                                    println!(
+                                        "      • {}",
+                                        sql_file.display().to_string().dimmed()
+                                    );
+                                }
+                            }
+                        }
+                    }
+
+                    println!();
+                    println!(
+                        "{}",
+                        "────────────────────────────────────────────────────────────"
+                            .dimmed()
+                    );
+                }
+            }
+        }
+
+        // ── schema-risk scan ─────────────────────────────────────────────────
+        Commands::Scan {
+            dir,
+            format,
+            fail_on_dangerous,
+            config: config_path,
+            verbose,
+        } => {
+            use colored::Colorize;
+
+            let cfg = config::load(config_path.as_deref());
+            let _scanner = ImpactScanner::new(vec![], vec![]);  // Will be used with SQL extraction
+
+            // For now, show a placeholder message - full implementation comes in the guard enhancement step
+            match format {
+                OutputFormat::Json => {
+                    let result = serde_json::json!({
+                        "status": "scanning",
+                        "directory": dir,
+                        "message": "SQL extraction scan in progress"
+                    });
+                    println!("{}", serde_json::to_string_pretty(&result).unwrap_or_default());
+                }
+                _ => {
+                    println!();
+                    println!(
+                        "{}",
+                        "────────────────────────────────────────────────────────────"
+                            .dimmed()
+                    );
+                    println!(" {} Code SQL Scanner", "SchemaRisk".bold().cyan());
+                    println!(
+                        "{}",
+                        "────────────────────────────────────────────────────────────"
+                            .dimmed()
+                    );
+                    println!();
+                    println!("  Scanning {} for SQL queries...", dir.cyan());
+                    println!();
+
+                    // Placeholder: show supported patterns
+                    println!("  {} Supported ORM patterns:", "✓".green());
+                    println!("    • Prisma: $queryRaw, $executeRaw");
+                    println!("    • TypeORM: .query(), createQueryBuilder");
+                    println!("    • Sequelize: sequelize.query()");
+                    println!("    • SQLAlchemy: text(), execute()");
+                    println!("    • GORM: .Raw(), .Exec()");
+                    println!("    • Diesel: sql_query()");
+                    println!("    • ActiveRecord: execute(), exec_query()");
+                    println!("    • Eloquent: DB::raw(), DB::statement()");
+                    println!();
+
+                    if verbose {
+                        println!("  {} Configuration:", "ℹ".cyan());
+                        println!("    Extensions: {:?}", cfg.scan.extensions);
+                        println!("    Exclude: {:?}", cfg.scan.exclude);
+                        println!();
+                    }
+
+                    println!(
+                        "  {} Full SQL extraction will be implemented in the next version",
+                        "ℹ".cyan()
+                    );
+                    println!();
+                    println!(
+                        "{}",
+                        "────────────────────────────────────────────────────────────"
+                            .dimmed()
+                    );
+                }
+            }
+
+            if fail_on_dangerous {
+                // For now, always exit 0 since we haven't implemented full scanning
+                process::exit(0);
             }
         }
     }

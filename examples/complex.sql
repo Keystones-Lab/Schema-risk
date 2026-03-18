@@ -18,7 +18,7 @@ ALTER TABLE product_tags
 
 -- HIGH: non-concurrent index (blocks writes)
 -- schema-risk fix examples/complex.sql  will add CONCURRENTLY here
-CREATE INDEX idx_product_tags_product_id ON product_tags(product_id);
+CREATE INDEX CONCURRENTLY idx_product_tags_product_id ON product_tags(product_id);
 
 -- HIGH: type change (full table rewrite)
 ALTER TABLE products ALTER COLUMN price TYPE NUMERIC(15, 4);

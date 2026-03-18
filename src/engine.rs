@@ -9,6 +9,7 @@ use crate::graph::SchemaGraph;
 use crate::parser::ParsedStatement;
 use crate::types::{DetectedOperation, FkImpact, MigrationReport, RiskLevel};
 use chrono::Utc;
+use std::collections::{HashMap, HashSet};
 
 // ─────────────────────────────────────────────
 // Engine
@@ -17,7 +18,7 @@ use chrono::Utc;
 pub struct RiskEngine {
     /// Estimated rows per table – supplied by the user via --table-rows flag
     /// OR imported from the live database via --db-url.
-    pub row_counts: std::collections::HashMap<String, u64>,
+    pub row_counts: HashMap<String, u64>,
     /// Optional live schema snapshot fetched via --db-url.
     pub live_schema: Option<LiveSchema>,
     /// Target PostgreSQL major version (e.g. 14 for PG14).
@@ -28,7 +29,7 @@ pub struct RiskEngine {
 }
 
 impl RiskEngine {
-    pub fn new(row_counts: std::collections::HashMap<String, u64>) -> Self {
+    pub fn new(row_counts: HashMap<String, u64>) -> Self {
         Self {
             row_counts,
             live_schema: None,
@@ -47,7 +48,7 @@ impl RiskEngine {
     /// Create an engine seeded from a live database snapshot.
     /// Row counts from `live` override any manually provided `row_counts`.
     pub fn with_live_schema(
-        mut row_counts: std::collections::HashMap<String, u64>,
+        mut row_counts: HashMap<String, u64>,
         live: LiveSchema,
     ) -> Self {
         // Merge live row counts (live wins)
@@ -80,7 +81,9 @@ impl RiskEngine {
         }
 
         // ── Aggregate results ────────────────────────────────────────────
-        let score: u32 = operations.iter().map(|o| o.score).sum();
+        let score: u32 = operations
+            .iter()
+            .fold(0u32, |acc, operation| acc.saturating_add(operation.score));
         let overall_risk = RiskLevel::from_score(score);
 
         let mut affected_tables: Vec<String> = operations
@@ -93,13 +96,21 @@ impl RiskEngine {
         let index_rebuild_required = operations.iter().any(|o| o.index_rebuild);
         let requires_maintenance_window = overall_risk >= RiskLevel::High;
 
-        let warnings: Vec<String> = operations
+        let warnings: Vec<String> = Self::dedupe_preserve_order(
+            operations
             .iter()
             .filter_map(|o| o.warning.clone())
-            .collect();
+            .collect(),
+        );
 
-        let recommendations =
-            self.build_recommendations(&operations, &affected_tables, overall_risk);
+        let recommendations = Self::dedupe_preserve_order(self.build_recommendations(
+            &operations,
+            &affected_tables,
+            overall_risk,
+        ));
+        let guard_required = operations
+            .iter()
+            .any(|o| o.score >= 40 || o.risk_level >= RiskLevel::High);
 
         // Lock estimate: rough heuristic based on table size
         let estimated_lock_seconds = self.estimate_lock_seconds(&operations, &affected_tables);
@@ -118,9 +129,20 @@ impl RiskEngine {
             requires_maintenance_window,
             analyzed_at: Utc::now().to_rfc3339(),
             pg_version: self.pg_version,
-            guard_required: false,
+            guard_required,
             guard_decisions: Vec::new(),
         }
+    }
+
+    fn dedupe_preserve_order(items: Vec<String>) -> Vec<String> {
+        let mut seen = HashSet::new();
+        let mut deduped = Vec::new();
+        for item in items {
+            if seen.insert(item.clone()) {
+                deduped.push(item);
+            }
+        }
+        deduped
     }
 
     // ─────────────────────────────────────────────────────────────────────
@@ -615,26 +637,58 @@ impl RiskEngine {
             }
 
             // ── OTHER (unmodelled DDL) — B-01 fix ────────────────────────────
-            ParsedStatement::Other { raw } => {
-                if raw.contains("Unmodelled DDL") {
-                    // Belt-and-suspenders: parser flagged this as potentially dangerous
-                    vec![DetectedOperation {
-                        description: raw.chars().take(100).collect(),
-                        tables: vec![],
-                        risk_level: RiskLevel::Medium,
-                        score: 30,
-                        warning: Some(
-                            "Unmodelled DDL — manual review required before running".to_string(),
-                        ),
-                        acquires_lock: true,
-                        index_rebuild: false,
-                    }]
-                } else {
-                    vec![]
-                }
-            }
+            ParsedStatement::Other { raw } => self.evaluate_other_statement(raw),
             _ => vec![],
         }
+    }
+
+    fn evaluate_other_statement(&self, raw: &str) -> Vec<DetectedOperation> {
+        let upper = raw.to_uppercase();
+        let is_flagged_unmodelled = upper.contains("UNMODELLED DDL");
+
+        let (score, warning, lock_likely) = if upper.contains("DROP DATABASE")
+            || upper.contains("DROP SCHEMA")
+            || upper.contains("TRUNCATE")
+        {
+            (
+                90,
+                "Unmodelled destructive DDL detected — high blast radius and likely irreversible"
+                    .to_string(),
+                true,
+            )
+        } else if upper.contains("DROP TABLE") || upper.contains("DROP COLUMN") {
+            (
+                80,
+                "Unmodelled DROP operation detected — manual review required before execution"
+                    .to_string(),
+                true,
+            )
+        } else if upper.contains("ALTER TABLE") || upper.contains("CREATE POLICY") {
+            (
+                35,
+                "Unmodelled DDL may acquire locks or change access semantics — review migration plan"
+                    .to_string(),
+                true,
+            )
+        } else if is_flagged_unmodelled {
+            (
+                30,
+                "Unmodelled DDL — manual review required before running".to_string(),
+                true,
+            )
+        } else {
+            return vec![];
+        };
+
+        vec![DetectedOperation {
+            description: raw.chars().take(100).collect(),
+            tables: vec![],
+            risk_level: RiskLevel::from_score(score),
+            score,
+            warning: Some(warning),
+            acquires_lock: lock_likely,
+            index_rebuild: false,
+        }]
     }
 
     // ─────────────────────────────────────────────────────────────────────

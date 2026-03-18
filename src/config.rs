@@ -17,6 +17,8 @@ use std::path::Path;
 #[serde(default)]
 pub struct Config {
     pub version: u32,
+    pub database: DatabaseConfig,
+    pub migrations: MigrationsConfig,
     pub thresholds: Thresholds,
     pub rules: RulesConfig,
     pub scan: ScanConfig,
@@ -28,11 +30,78 @@ impl Default for Config {
     fn default() -> Self {
         Self {
             version: 2,
+            database: DatabaseConfig::default(),
+            migrations: MigrationsConfig::default(),
             thresholds: Thresholds::default(),
             rules: RulesConfig::default(),
             scan: ScanConfig::default(),
             guard: GuardConfig::default(),
             output: OutputConfig::default(),
+        }
+    }
+}
+
+// ─────────────────────────────────────────────
+// Database config
+// ─────────────────────────────────────────────
+
+/// Database connection configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct DatabaseConfig {
+    /// Primary environment variable to read database URL from.
+    pub url_env: String,
+    /// Fallback environment variables to check (in order).
+    pub fallback_envs: Vec<String>,
+    /// Whether to automatically load `.env` file.
+    pub load_dotenv: bool,
+    /// Direct database URL (not recommended — use env vars instead).
+    pub url: Option<String>,
+}
+
+impl Default for DatabaseConfig {
+    fn default() -> Self {
+        Self {
+            url_env: "DATABASE_URL".to_string(),
+            fallback_envs: vec!["DB_URL".to_string(), "POSTGRES_URL".to_string()],
+            load_dotenv: true,
+            url: None,
+        }
+    }
+}
+
+// ─────────────────────────────────────────────
+// Migrations config
+// ─────────────────────────────────────────────
+
+/// Migration file discovery configuration.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+#[serde(default)]
+pub struct MigrationsConfig {
+    /// Custom paths to scan for migrations (empty = auto-detect only).
+    pub paths: Vec<String>,
+    /// Enable automatic migration directory discovery.
+    pub auto_discover: bool,
+    /// Glob patterns for migration files.
+    pub patterns: Vec<String>,
+}
+
+impl Default for MigrationsConfig {
+    fn default() -> Self {
+        Self {
+            paths: vec![],
+            auto_discover: true,
+            patterns: vec![
+                "prisma/migrations/**/migration.sql".to_string(),
+                "db/migrate/**/*.sql".to_string(),
+                "migrations/**/*.sql".to_string(),
+                "alembic/versions/**/*.sql".to_string(),
+                "drizzle/**/*.sql".to_string(),
+                "supabase/migrations/**/*.sql".to_string(),
+                "flyway/sql/**/*.sql".to_string(),
+                "src/migrations/**/*.sql".to_string(),
+                "database/migrations/**/*.sql".to_string(),
+            ],
         }
     }
 }
@@ -108,12 +177,16 @@ impl Default for ScanConfig {
                 "rb".to_string(),
                 "java".to_string(),
                 "kt".to_string(),
+                "cs".to_string(),
+                "php".to_string(),
             ],
             exclude: vec![
                 "target/".to_string(),
                 "node_modules/".to_string(),
                 "vendor/".to_string(),
                 ".git/".to_string(),
+                "dist/".to_string(),
+                "build/".to_string(),
             ],
             skip_short_identifiers: true,
         }
@@ -218,35 +291,53 @@ pub fn default_yaml_template() -> &'static str {
     r#"# schema-risk.yml — per-project SchemaRisk configuration
 version: 2
 
+# Database connection settings
+database:
+  url_env: DATABASE_URL           # primary env var for DB URL
+  fallback_envs:                  # fallback env vars to check (in order)
+    - DB_URL
+    - POSTGRES_URL
+  load_dotenv: true               # auto-load .env file
+  # url: postgres://...           # direct URL (not recommended - use env vars)
+
+# Migration file discovery
+migrations:
+  paths: []                       # custom paths (empty = auto-detect)
+  auto_discover: true             # scan for common migration patterns
+  patterns:                       # glob patterns for SQL migration files
+    - "prisma/migrations/**/migration.sql"
+    - "db/migrate/**/*.sql"
+    - "migrations/**/*.sql"
+    - "alembic/versions/**/*.sql"
+    - "drizzle/**/*.sql"
+    - "supabase/migrations/**/*.sql"
+
 thresholds:
-  fail_on: high          # low | medium | high | critical
-  guard_on: medium       # operations at this level or above trigger guard prompts
+  fail_on: high                   # low | medium | high | critical
+  guard_on: medium                # operations at this level trigger guard prompts
 
 rules:
-  # Disable specific rules by ID
-  disabled: []           # e.g. [R03, R07]
-
-  # Per-table overrides
+  disabled: []                    # e.g. [R03, R07]
   table_overrides:
     audit_log:
-      max_risk: critical   # allow higher risk on this table (it's append-only)
+      max_risk: critical          # allow higher risk on append-only tables
     sessions:
-      ignored: true        # skip risk analysis for this table entirely
+      ignored: true               # skip risk analysis entirely
 
 scan:
-  root_dir: "."            # directory to scan for code impact
-  extensions: [rs, py, go, ts, js, rb, java, kt]
-  exclude: [target/, node_modules/, vendor/, .git/]
-  skip_short_identifiers: true   # skip columns < 4 chars (avoids false positives)
+  root_dir: "."                   # directory to scan for code impact
+  extensions: [rs, py, go, ts, js, rb, java, kt, cs, php]
+  exclude: [target/, node_modules/, vendor/, .git/, dist/, build/]
+  skip_short_identifiers: true    # skip columns < 4 chars (avoids false positives)
 
 guard:
-  require_typed_confirmation: true   # require "yes I am sure" for Critical ops
+  require_typed_confirmation: true  # "yes I am sure" for Critical ops
   audit_log: ".schemarisk-audit.json"
-  block_agents: true                 # always block when AGENT actor detected
-  block_ci: false                    # set true to block CI pipelines too
+  block_agents: true              # always block AI agents
+  block_ci: false                 # set true to block CI pipelines
 
 output:
-  format: terminal        # terminal | json | markdown | sarif
+  format: terminal                # terminal | json | markdown | sarif
   color: true
   show_recommendations: true
   show_impact: true
@@ -269,6 +360,9 @@ mod tests {
         assert!(cfg.guard.block_agents);
         assert!(!cfg.guard.block_ci);
         assert!(cfg.scan.skip_short_identifiers);
+        assert_eq!(cfg.database.url_env, "DATABASE_URL");
+        assert!(cfg.database.load_dotenv);
+        assert!(cfg.migrations.auto_discover);
     }
 
     #[test]
@@ -277,5 +371,25 @@ mod tests {
             serde_yaml::from_str(default_yaml_template()).expect("template should be valid YAML");
         assert_eq!(cfg.version, 2);
         assert_eq!(cfg.thresholds.fail_on, "high");
+        assert_eq!(cfg.database.url_env, "DATABASE_URL");
+        assert!(cfg.migrations.auto_discover);
+    }
+
+    #[test]
+    fn database_config_defaults() {
+        let db = DatabaseConfig::default();
+        assert_eq!(db.url_env, "DATABASE_URL");
+        assert_eq!(db.fallback_envs, vec!["DB_URL", "POSTGRES_URL"]);
+        assert!(db.load_dotenv);
+        assert!(db.url.is_none());
+    }
+
+    #[test]
+    fn migrations_config_defaults() {
+        let mig = MigrationsConfig::default();
+        assert!(mig.paths.is_empty());
+        assert!(mig.auto_discover);
+        assert!(!mig.patterns.is_empty());
+        assert!(mig.patterns.iter().any(|p| p.contains("prisma")));
     }
 }

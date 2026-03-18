@@ -6,8 +6,10 @@
 pub mod ci;
 pub mod config;
 pub mod db;
+pub mod discovery;
 pub mod drift;
 pub mod engine;
+pub mod env;
 pub mod error;
 pub mod graph;
 pub mod guard;

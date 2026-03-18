@@ -5,8 +5,8 @@ edition = "2021"
 authors = ["Keystones-lab"]
 description = "Production-grade PostgreSQL migration safety analyzer and dangerous-command guardian"
 license = "MIT"
-repository = "https://github.com/Keystones-Lab/dbRisk"
-homepage = "https://github.com/Keystones-Lab/dbRisk"
+repository = "https://github.com/Keystones-Lab/Schema-risk"
+homepage = "https://github.com/Keystones-Lab/Schema-risk"
 documentation = "https://docs.rs/schema-risk"
 readme = "README.md"
 keywords = ["database", "migration", "sql", "risk", "cli"]
@@ -47,9 +47,6 @@ colored = "2"
 # Rich terminal tables
 comfy-table = "7"
 
-# Progress indicators (spinners, progress bars)
-indicatif = "0.17"
-
 # Structured logging / tracing
 tracing = "0.1"
 tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
@@ -57,14 +54,14 @@ tracing-subscriber = { version = "0.3", features = ["env-filter", "fmt"] }
 # Timestamps
 chrono = { version = "0.4", features = ["serde"] }
 
-# Regex for pattern matching
+# Regex for pattern matching (SQL extraction from code)
 regex = "1.11"
 
 # Glob for multi-file analysis
 glob = "0.3"
 
-# Recursive directory walking
-walkdir = "2"
+# Environment variable loading from .env files
+dotenvy = "0.15"
 
 # PostgreSQL driver (optional – only used for --db-url)
 tokio-postgres = { version = "0.7", features = ["with-serde_json-1"], optional = true }
@@ -80,12 +77,6 @@ reqwest = { version = "0.12", features = ["json", "rustls-tls"], default-feature
 
 # YAML config serialization/deserialization
 serde_yaml = "0.9"
-
-# Interactive terminal prompts (for guard confirmations)
-dialoguer = "0.11"
-
-# Diff display (for schema-risk diff)
-similar = "2"
 
 [features]
 default = []

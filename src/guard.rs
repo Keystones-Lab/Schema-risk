@@ -610,6 +610,218 @@ fn build_impact_summary(report: &MigrationReport, op_desc: &str) -> String {
 }
 
 // ─────────────────────────────────────────────
+// Code Scanning Guard Mode
+// ─────────────────────────────────────────────
+
+use crate::impact::{ExtractedSql, SqlExtractor, SqlExtractionReport};
+
+/// Options for scanning source code for dangerous SQL.
+#[derive(Default)]
+pub struct CodeGuardOptions {
+    /// Base guard options.
+    pub base: GuardOptions,
+    /// Directory to scan for SQL in code.
+    pub scan_dir: std::path::PathBuf,
+    /// File extensions to scan (use config defaults if empty).
+    pub extensions: Vec<String>,
+}
+
+/// A dangerous SQL query found in source code.
+#[derive(Debug, Clone)]
+pub struct DangerousQuery {
+    /// The extracted SQL information.
+    pub source: ExtractedSql,
+    /// The risk analysis report for this SQL.
+    pub report: crate::types::MigrationReport,
+    /// Operations that require guarding.
+    pub guarded_operations: Vec<crate::types::DetectedOperation>,
+}
+
+/// Result of scanning code for dangerous SQL.
+#[derive(Debug)]
+pub struct CodeGuardReport {
+    /// All extracted SQL from the codebase.
+    pub extraction_report: SqlExtractionReport,
+    /// Dangerous queries that require attention.
+    pub dangerous_queries: Vec<DangerousQuery>,
+    /// Overall guard outcome.
+    pub overall_outcome: GuardOutcome,
+    /// Summary statistics.
+    pub stats: CodeGuardStats,
+}
+
+/// Statistics from code guard scanning.
+#[derive(Debug, Default, Clone)]
+pub struct CodeGuardStats {
+    /// Total files scanned.
+    pub files_scanned: usize,
+    /// Total SQL statements found.
+    pub total_sql_found: usize,
+    /// Number of dangerous SQL statements.
+    pub dangerous_count: usize,
+    /// Breakdown by ORM/context.
+    pub by_context: std::collections::HashMap<String, usize>,
+}
+
+/// Scan source code for SQL and guard against dangerous operations.
+///
+/// This function:
+/// 1. Scans the specified directory for SQL in source code
+/// 2. Parses and analyzes each SQL statement found
+/// 3. Identifies dangerous operations that require confirmation
+/// 4. Returns a comprehensive report
+pub fn guard_code_sql(opts: CodeGuardOptions) -> crate::error::Result<CodeGuardReport> {
+    let _actor = detect_actor();  // Reserved for future use
+    let extractor = SqlExtractor::new();
+    let extraction_report = extractor.scan_directory(&opts.scan_dir);
+
+    let engine = RiskEngine::new(opts.base.row_counts.clone());
+    let mut dangerous_queries: Vec<DangerousQuery> = Vec::new();
+
+    // Analyze each extracted SQL statement
+    for sql_item in &extraction_report.extracted {
+        // Try to parse the SQL
+        let stmts = match parser::parse(&sql_item.sql) {
+            Ok(s) => s,
+            Err(_) => continue, // Skip unparseable SQL
+        };
+
+        // Analyze for risks
+        let report = engine.analyze(&sql_item.source_file, &stmts);
+
+        // Check if any operations need guarding
+        let guarded_ops: Vec<_> = report
+            .operations
+            .iter()
+            .filter(|op| is_guarded_operation(&op.description, op.score))
+            .cloned()
+            .collect();
+
+        if !guarded_ops.is_empty() {
+            dangerous_queries.push(DangerousQuery {
+                source: sql_item.clone(),
+                report,
+                guarded_operations: guarded_ops,
+            });
+        }
+    }
+
+    // Build statistics
+    let stats = CodeGuardStats {
+        files_scanned: extraction_report.files_scanned,
+        total_sql_found: extraction_report.extracted.len(),
+        dangerous_count: dangerous_queries.len(),
+        by_context: extraction_report.by_context.clone(),
+    };
+
+    // Determine overall outcome
+    let overall_outcome = if dangerous_queries.is_empty() {
+        GuardOutcome::Safe
+    } else {
+        GuardOutcome::Blocked {
+            reason: format!(
+                "Found {} dangerous SQL statement(s) in source code",
+                dangerous_queries.len()
+            ),
+            operation: dangerous_queries
+                .first()
+                .map(|d| d.source.sql.chars().take(60).collect())
+                .unwrap_or_default(),
+            impact: format!(
+                "{} file(s) contain dangerous queries",
+                dangerous_queries
+                    .iter()
+                    .map(|d| &d.source.source_file)
+                    .collect::<std::collections::HashSet<_>>()
+                    .len()
+            ),
+        }
+    };
+
+    Ok(CodeGuardReport {
+        extraction_report,
+        dangerous_queries,
+        overall_outcome,
+        stats,
+    })
+}
+
+/// Render code guard results to stderr.
+pub fn render_code_guard_report(report: &CodeGuardReport, actor: &ActorKind) {
+    use colored::Colorize;
+
+    let divider = "-".repeat(78).dimmed().to_string();
+
+    eprintln!();
+    eprintln!("{}", divider);
+    eprintln!("{}", "SchemaRisk Code SQL Scanner".bold());
+    eprintln!("{}", divider);
+    eprintln!();
+
+    eprintln!(
+        "  {} files scanned, {} SQL statements found",
+        report.stats.files_scanned.to_string().cyan(),
+        report.stats.total_sql_found.to_string().cyan()
+    );
+
+    if !report.stats.by_context.is_empty() {
+        eprintln!();
+        eprintln!("  {} SQL by ORM/Framework:", "ℹ".cyan());
+        for (ctx, count) in &report.stats.by_context {
+            eprintln!("    • {}: {}", ctx, count);
+        }
+    }
+
+    eprintln!();
+
+    if report.dangerous_queries.is_empty() {
+        eprintln!(
+            "  {} No dangerous SQL found in source code",
+            "✅".green().bold()
+        );
+    } else {
+        eprintln!(
+            "  {} Found {} dangerous SQL statement(s)",
+            "⚠".yellow().bold(),
+            report.dangerous_queries.len()
+        );
+        eprintln!();
+
+        for (idx, dq) in report.dangerous_queries.iter().enumerate() {
+            let risk_str = match dq.report.overall_risk {
+                RiskLevel::Critical => "CRITICAL".red().bold().to_string(),
+                RiskLevel::High => "HIGH".truecolor(255, 140, 0).bold().to_string(),
+                RiskLevel::Medium => "MEDIUM".yellow().bold().to_string(),
+                RiskLevel::Low => "LOW".green().bold().to_string(),
+            };
+
+            eprintln!("  [{}] {} ({})", idx + 1, risk_str, dq.source.context);
+            eprintln!("      File: {}:{}", dq.source.source_file.cyan(), dq.source.line);
+            eprintln!(
+                "      SQL: {}",
+                dq.source.sql.chars().take(60).collect::<String>().dimmed()
+            );
+
+            for op in &dq.guarded_operations {
+                eprintln!("      → {}", op.description);
+            }
+            eprintln!();
+        }
+    }
+
+    let now = Utc::now().format("%Y-%m-%d %H:%M:%S").to_string();
+    eprintln!(
+        "  {} {}   {} {}",
+        "Actor:".bold(),
+        actor,
+        "Time:".bold(),
+        now
+    );
+    eprintln!("{}", divider);
+    eprintln!();
+}
+
+// ─────────────────────────────────────────────
 // Tests
 // ─────────────────────────────────────────────
 
