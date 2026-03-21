@@ -1,367 +1,392 @@
-﻿# SchemaRisk
+<div align="center">
 
-> **Stop dangerous database migrations before they reach production.**
+# SchemaRisk
 
-SchemaRisk is a production-grade PostgreSQL migration safety analyzer.  
-It understands your migrations the way a senior DBA does — flags dangerous operations, generates safe alternatives, and posts risk reports directly in your pull requests.
+**One bad migration away from production downtime.**
 
----
+SchemaRisk catches dangerous PostgreSQL migrations before they hit production.
 
-## Why SchemaRisk
+[![Crates.io](https://img.shields.io/crates/v/schema-risk.svg)](https://crates.io/crates/schema-risk)
+[![License: MIT](https://img.shields.io/badge/License-MIT-blue.svg)](LICENSE)
+[![CI](https://github.com/Keystones-Lab/Schema-risk/actions/workflows/ci.yml/badge.svg)](https://github.com/Keystones-Lab/Schema-risk/actions)
 
-Schema migrations fail in production for predictable reasons:
+[Quick Start](#quick-start) • [Demo](#see-it-in-action) • [CI Integration](#ci-integration) • [Docs](#commands)
 
-- `ALTER TABLE ... ALTER COLUMN TYPE` rewrites the entire table under lock
-- `CREATE INDEX` without `CONCURRENTLY` blocks all writes for minutes
-- `DROP COLUMN` breaks application code before it's been removed
-- `ADD COLUMN NOT NULL` fails instantly on tables with existing rows
-- `ADD COLUMN DEFAULT` on PostgreSQL 10 rewrites the table; on PG11+ it's free
-
-SchemaRisk detects all of these, explains exactly why they are dangerous, and gives you the step-by-step safe alternative.
+</div>
 
 ---
 
-## Key Features
+## The Problem
 
-| Feature | Description |
-|---|---|
-| **Risk scoring** | Every dangerous operation scored by severity + table size |
-| **PG version-aware rules** | `ADD COLUMN DEFAULT` behaves differently on PG10 vs PG11+ — SchemaRisk knows this |
-| **Safe migration generator** | Not just "danger detected" — gives you the exact zero-downtime SQL to run instead |
-| **Repository impact scanner** | Finds which files in your codebase reference the changed tables/columns |
-| **PR comment reports** | Posts a full migration report as a GitHub/GitLab PR comment automatically |
-| **`guard` mode** | Interactive confirmation gate for dangerous operations before they run |
-| **Schema drift detection** | Compares migration files against a live database to find drift |
-| **SARIF output** | GitHub Security tab integration |
+```sql
+CREATE INDEX idx_email ON users(email);
+```
+
+This runs silently in seconds locally. On production with 10M rows? **Table locked for 8+ minutes. API down.**
+
+```sql
+ALTER TABLE users ALTER COLUMN status TYPE VARCHAR(50);
+```
+
+Looks harmless. Actually: **Full table rewrite. Lock every row. Downtime.**
+
+```sql
+ALTER TABLE orders ADD COLUMN shipped BOOLEAN NOT NULL;
+```
+
+Works on empty tables. Production? **Instant failure. Transaction rollback.**
+
+**These are real incidents.** Every week, teams deploy migrations that silently break production.
 
 ---
 
-## Installation
-
-### From crates.io
+## The Solution
 
 ```bash
 cargo install schema-risk
 ```
 
-### From source
-
 ```bash
-git clone https://github.com/Keystones-Lab/Schema-risk
-cd Schema-risk
-cargo build --release
-```
-
-Binary: `target/release/schema-risk`
-
----
-
-## Quick start
-
-```bash
-# Analyze one migration — know the risk before you deploy
 schema-risk analyze migrations/001_add_index.sql
+```
 
-# Use the correct PostgreSQL version for accurate scoring
-schema-risk analyze migrations/001.sql --pg-version 14
+```
+┌─────────────────────────────────────────────────────────────────────────────┐
+│ SchemaRisk Analysis                                                         │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ File: migrations/001_add_index.sql                                          │
+│ Risk: HIGH (score: 70)                                                      │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ ⚠ WARNING                                                                   │
+│ CREATE INDEX on 'users' without CONCURRENTLY will hold a SHARE lock         │
+│ for the duration of the index build                                         │
+├─────────────────────────────────────────────────────────────────────────────┤
+│ ✓ SAFE ALTERNATIVE                                                          │
+│ CREATE INDEX CONCURRENTLY idx_email ON users(email);                        │
+└─────────────────────────────────────────────────────────────────────────────┘
+```
 
-# Get safe alternatives for everything risky
-schema-risk fix migrations/001.sql --dry-run
+**30 seconds to install. 1 command to prevent downtime.**
 
-# Post a full report to your PR
-schema-risk ci-report "migrations/*.sql" --format github-comment
+---
 
-# Guard dangerous operations with typed confirmation
-schema-risk guard migrations/005_breaking.sql
+## See It in Action
+
+```bash
+# Built-in demo — see SchemaRisk catch real problems
+schema-risk demo
+```
+
+Output:
+
+```
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+ SchemaRisk Demo - Real-World Migration Analysis
+━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━━
+
+Analyzing dangerous migration...
+
+┌─────────────────────────────────────────────────────────────┐
+│ ⛔ CRITICAL RISK DETECTED                                   │
+├─────────────────────────────────────────────────────────────┤
+│ Operation: ALTER COLUMN TYPE on `users.email`               │
+│ Impact:    Full table rewrite (~5M rows)                    │
+│ Lock:      ACCESS EXCLUSIVE (blocks all queries)            │
+│ Duration:  8-15 minutes estimated                           │
+├─────────────────────────────────────────────────────────────┤
+│ ✓ Zero-Downtime Alternative:                                │
+│                                                             │
+│   -- Step 1: Add shadow column                              │
+│   ALTER TABLE users ADD COLUMN email_v2 VARCHAR(255);       │
+│                                                             │
+│   -- Step 2: Backfill in batches                            │
+│   UPDATE users SET email_v2 = email WHERE email_v2 IS NULL  │
+│   LIMIT 10000;                                              │
+│                                                             │
+│   -- Step 3: Atomic swap                                    │
+│   ALTER TABLE users RENAME COLUMN email TO email_old;       │
+│   ALTER TABLE users RENAME COLUMN email_v2 TO email;        │
+│                                                             │
+│   -- Step 4: Drop old column                                │
+│   ALTER TABLE users DROP COLUMN email_old;                  │
+└─────────────────────────────────────────────────────────────┘
+
+→ This migration would have caused 15 minutes of downtime.
+→ SchemaRisk gives you the safe path instead.
 ```
 
 ---
 
-## Example output
+## Quick Start
 
-### Terminal (`analyze`)
+### Install
 
-```
- SchemaRisk Analysis  202406_add_index.sql
+```bash
+# From crates.io (recommended)
+cargo install schema-risk
 
-  Migration Risk:  HIGH   (score: 72)
-
-  Tables affected: users
-  Estimated lock duration: ~90 sec
-  Index rebuild required: YES
-  Requires maintenance window: YES
-
-  Warnings:
-    ! CREATE INDEX on 'users' without CONCURRENTLY will hold a SHARE lock
-      for the duration of the index build (cols: email)
-
-  Recommendations:
-    CREATE INDEX CONCURRENTLY idx_email ON users(email);
- This migration should NOT be deployed without review
+# From source
+git clone https://github.com/Keystones-Lab/Schema-risk
+cd Schema-risk && cargo install --path .
 ```
 
-### Safe Migration Generator (`fix`)
+### Analyze Your Migrations
 
-For a dangerous type change like:
-```sql
-ALTER TABLE users ALTER COLUMN email TYPE text;
+```bash
+# Single file
+schema-risk analyze db/migrations/001_add_users.sql
+
+# All migrations
+schema-risk analyze "db/migrations/*.sql"
+
+# Auto-discover and analyze everything
+schema-risk doctor
 ```
 
-SchemaRisk outputs a complete zero-downtime plan:
+### Get Safe Alternatives
 
-```sql
--- Step 1: Add shadow column with new type
-ALTER TABLE users ADD COLUMN email_v2 text;
+```bash
+# Preview what the safe version looks like
+schema-risk fix migrations/risky.sql --dry-run
 
--- Step 2: Back-fill in batches (run until 0 rows updated)
-UPDATE users
-  SET email_v2 = email::text
-  WHERE email_v2 IS NULL
-  LIMIT 10000;
-
--- Step 3: Deploy app to write to both columns
-
--- Step 4: Atomically swap column names
-ALTER TABLE users RENAME COLUMN email     TO email_old;
-ALTER TABLE users RENAME COLUMN email_v2  TO email;
-
--- Step 5: Drop old column after verifying app health
-ALTER TABLE users DROP COLUMN email_old;
+# Generate fixed migration file
+schema-risk fix migrations/risky.sql --output migrations/risky_safe.sql
 ```
 
-### PR Comment Report (`ci-report`)
+---
 
-When a migration is included in a PR, SchemaRisk automatically posts:
+## CI Integration
 
-> ** SchemaRisk — Migration Safety Report (PostgreSQL 14)**
+**Block dangerous migrations at PR time.** Add one file and every PR gets automatic risk reports.
+
+### GitHub Actions (2 minutes)
+
+Create `.github/workflows/schema-risk.yml`:
+
+```yaml
+name: Migration Safety Check
+
+on:
+  pull_request:
+    paths:
+      - 'db/migrations/**'
+      - 'migrations/**'
+      - 'prisma/migrations/**'
+
+jobs:
+  analyze:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install SchemaRisk
+        run: cargo install schema-risk
+
+      - name: Analyze migrations
+        run: |
+          schema-risk ci-report "migrations/*.sql" \
+            --format github-comment \
+            --fail-on high \
+            --pg-version 14
+```
+
+**Result:** Every PR with SQL changes gets a comment like:
+
+> **⚠️ HIGH RISK** — This migration may cause production issues.
 >
 > | File | Risk | Score | Lock | Est. Duration |
-> |------|:----:|------:|------|--------------:|
-> | `202406_add_index.sql` | **HIGH** | 72 | `SHARE` | ~90s |
+> |------|:----:|------:|------|-------------:|
+> | `001_add_index.sql` | **HIGH** | 70 | `SHARE` | ~90s |
 >
 > **Safe Alternative:**
 > ```sql
 > CREATE INDEX CONCURRENTLY idx_email ON users(email);
 > ```
->
-> **Impact:** 12 files reference `users.email`
 
 ---
 
-## PostgreSQL version-aware scoring
+## What SchemaRisk Catches
 
-Pass `--pg-version` to get accurate risk scores for your specific PostgreSQL version.
-
-| Operation | PG10 | PG11+ |
-|---|---|---|
-| `ADD COLUMN DEFAULT` |Full table rewrite | Metadata-only |
-| `SET NOT NULL` | Full scan, long lock | CHECK constraint safe alternative on PG12+ |
-| `ALTER COLUMN TYPE` | Full rewrite (all versions) | Full rewrite (all versions) |
-
-```bash
-# Score correctly for an older production database
-schema-risk analyze migrations/ --pg-version 10
-
-# Or target PG14 (default)
-schema-risk analyze migrations/ --pg-version 14
-```
+| Operation | Risk | Why It's Dangerous |
+|-----------|------|-------------------|
+| `CREATE INDEX` (no `CONCURRENTLY`) | 🔴 HIGH | Blocks all writes during build |
+| `ALTER COLUMN TYPE` | 🔴 HIGH | Full table rewrite, exclusive lock |
+| `ADD COLUMN NOT NULL` (no default) | 🔴 HIGH | Fails on existing rows |
+| `DROP TABLE` | ⛔ CRITICAL | Irreversible data loss |
+| `DROP COLUMN` | 🔴 HIGH | Breaks app code still reading it |
+| `RENAME COLUMN/TABLE` | 🔴 HIGH | Breaks all downstream queries |
+| `SET NOT NULL` | 🟡 MEDIUM | Full table scan to validate |
+| `ADD COLUMN DEFAULT` (PG < 11) | 🔴 HIGH | Table rewrite (metadata-only on PG11+) |
+| `TRUNCATE` | ⛔ CRITICAL | Immediate data destruction |
+| `ON DELETE CASCADE` | 🟡 MEDIUM | Silent cascading deletes |
 
 ---
 
 ## Commands
 
-### `analyze`
-Analyze one or more SQL files and report risk.
+### `analyze` — Risk Assessment
 
 ```bash
 schema-risk analyze migrations/001.sql
-schema-risk analyze "migrations/*.sql" --verbose
-schema-risk analyze migrations/001.sql --pg-version 14
-schema-risk analyze migrations/001.sql --format json
-schema-risk analyze migrations/001.sql --format markdown
-schema-risk analyze migrations/001.sql --format sarif
-schema-risk analyze migrations/001.sql --show-locks
-schema-risk analyze migrations/001.sql --scan-dir ./src
-schema-risk analyze migrations/001.sql --table-rows "users:5000000,orders:2000000"
-schema-risk analyze migrations/001.sql --fail-on critical
+schema-risk analyze "migrations/*.sql" --format json
+schema-risk analyze migrations/ --pg-version 14 --verbose
+schema-risk analyze migrations/ --fail-on high  # Exit 1 if HIGH+
 ```
 
-### `fix`
-Apply auto-fixes where supported and show zero-downtime migration plans for everything else.
+### `fix` — Safe Migration Generator
 
 ```bash
-schema-risk fix migrations/001.sql
-schema-risk fix migrations/001.sql --dry-run
-schema-risk fix migrations/001.sql --output migrations/001_fixed.sql
+schema-risk fix migrations/001.sql --dry-run      # Preview
+schema-risk fix migrations/001.sql --output safe.sql
 ```
 
-### `ci-report`
-Generate GitHub/GitLab PR comments or JSON CI output.
+### `guard` — Interactive Confirmation Gate
 
 ```bash
-schema-risk ci-report "migrations/*.sql" --format github-comment
-schema-risk ci-report "migrations/*.sql" --format github-comment --pg-version 14
-schema-risk ci-report "migrations/*.sql" --format json
-schema-risk ci-report "migrations/*.sql" --scan-dir ./services --fail-on critical
-```
+schema-risk guard migrations/dangerous.sql
+# → Blocks execution until you confirm
 
-### `explain`
-Show a detailed, statement-by-statement breakdown.
-
-```bash
-schema-risk explain migrations/001.sql
-```
-
-### `graph`
-Render the schema dependency graph from migration files.
-
-```bash
-schema-risk graph "migrations/*.sql"               # text
-schema-risk graph "migrations/*.sql" --format mermaid
-schema-risk graph "migrations/*.sql" --format graphviz
-```
-
-### `diff`
-Compare expected schema (from migrations) against a live database to detect drift.
-
-```bash
-schema-risk diff "migrations/*.sql" --db-url postgres://user:pass@host/db
-```
-
-### `guard`
-Intercept dangerous operations and require explicit confirmation before allowing them to run.
-
-```bash
-schema-risk guard migrations/005_drop.sql
-schema-risk guard migrations/005_drop.sql --dry-run
-schema-risk guard migrations/005_drop.sql --non-interactive
-
-# Usage pattern (blocks the migration unless confirmed)
+# Safe pattern for scripts:
 schema-risk guard migration.sql && psql -f migration.sql
 ```
 
-### `init`
-Create a starter `schema-risk.yml` config file.
+### `doctor` — Zero-Config Analysis
 
 ```bash
-schema-risk init
-schema-risk init --force
+schema-risk doctor              # Auto-discover and analyze all migrations
+schema-risk doctor --verbose    # Show discovery details
+```
+
+### `demo` — See It In Action
+
+```bash
+schema-risk demo     # Built-in demonstration of SchemaRisk capabilities
+```
+
+### `ci-report` — PR Comments
+
+```bash
+schema-risk ci-report "migrations/*.sql" --format github-comment
+schema-risk ci-report "migrations/*.sql" --format gitlab-comment
+schema-risk ci-report "migrations/*.sql" --format json
+```
+
+### `discover` — Find Migrations
+
+```bash
+schema-risk discover .          # Find all migration directories
+schema-risk discover . --json   # Output as JSON
 ```
 
 ---
 
-## Automatic PR Migration Reports
+## Configuration
 
-Add SchemaRisk to your GitHub Actions workflow and get automatic risk reports on every PR that touches migration files.
-
-### Setup (2 minutes)
-
-Copy `.github/workflows/schema-risk.yml` from this repo into your project, then set `PG_VERSION` to match your production database:
-
-```yaml
-env:
-  PG_VERSION: "14"  # Set to your production PostgreSQL version
-```
-
-That's it. Every PR with SQL changes will now receive a comment like this:
-
->**HIGH RISK** — significant impact on database availability.  
-> Review all findings carefully before merging.
->
-> | File | Risk | Score | Lock | Est. Duration | Breaking Changes |
-> |------|:----:|------:|------|---:|:----|
-> | `202406_add_index.sql` |**HIGH** | 72 | `SHARE` | ~90s |3 file(s) |
->
->Generated by SchemaRisk — Prevent dangerous migrations before they reach production.
-
-### Why this matters for your team
-
-When engineers review PRs, they see the risk report. Engineers on other teams ask "what is SchemaRisk?"  
-Then they install it too.
-
-This is how devtools grow organically — by being useful in the places developers already work.
-
----
-
-## Guard behavior by actor
-
-| Actor | Detection | Behavior |
-|---|---|---|
-| Human | Interactive terminal | Shows impact panel and prompts for confirmation |
-| CI | `CI`, `GITHUB_ACTIONS`, etc. | Blocks dangerous ops in non-interactive mode |
-| Agent | AI provider env indicators | Blocks and emits machine-readable result |
-
-Guard output includes:
-- Operation summary
-- Risk + lock metadata  
-- Affected objects
-- Likely breakage
-- Full audit trail (`.schemarisk-audit.json`)
-
----
-
-## Configuration (`schema-risk.yml`)
-
-Generate a starter file:
+Generate a config file:
 
 ```bash
 schema-risk init
 ```
 
-Example:
+Example `schema-risk.yml`:
 
 ```yaml
 version: 2
 
 thresholds:
-  fail_on: high
-  guard_on: medium
+  fail_on: high      # Exit non-zero on HIGH or CRITICAL
+  guard_on: medium   # Require confirmation on MEDIUM+
 
 rules:
-  disabled: []
+  disabled: []       # Rule IDs to skip: [R01, R02]
   table_overrides:
     sessions:
-      ignored: true
-
-scan:
-  root_dir: "."
-  extensions: [rs, py, go, ts, js, rb, java, kt]
-  exclude: [target/, node_modules/, vendor/, .git/]
-  skip_short_identifiers: true
+      ignored: true  # Skip analysis for ephemeral tables
 
 guard:
-  require_typed_confirmation: true
+  require_typed_confirmation: true   # "yes I am sure" for CRITICAL
   audit_log: ".schemarisk-audit.json"
   block_agents: true
   block_ci: false
-
-output:
-  format: terminal
-  color: true
-  show_recommendations: true
-  show_impact: true
 ```
 
 ---
 
-## Exit codes
+## PostgreSQL Version Awareness
 
-| Code | Meaning |
-|---|---|
-| 0 | Success / below configured threshold |
-| 1 | Risk meets or exceeds fail threshold |
-| 2 | Parse/IO/database command error |
-| 3 | Guard runtime error |
-| 4 | Guard blocked execution |
+SchemaRisk knows PostgreSQL internals. Same SQL, different behavior:
+
+| Operation | PG 10 | PG 11+ |
+|-----------|-------|--------|
+| `ADD COLUMN DEFAULT` | Full table rewrite | Metadata-only ✓ |
+| `SET NOT NULL` | Long exclusive lock | CHECK constraint workaround available |
+
+```bash
+# Score accurately for your PG version
+schema-risk analyze migrations/ --pg-version 10
+schema-risk analyze migrations/ --pg-version 14
+```
 
 ---
 
-## Development
+## Real Production Scenarios
+
+Test these to validate SchemaRisk before rolling out to your team:
 
 ```bash
+# 1. Safe migration (should pass cleanly)
+schema-risk analyze examples/safe.sql
+
+# 2. Risky operations (should flag with alternatives)
+schema-risk analyze examples/risky.sql
+
+# 3. Critical destructive ops (should block)
+schema-risk guard examples/critical.sql --dry-run
+
+# 4. Full fix generation
+schema-risk fix examples/risky.sql --dry-run
+
+# 5. CI output format
+schema-risk ci-report "examples/*.sql" --format github-comment
+```
+
+---
+
+## Exit Codes
+
+| Code | Meaning |
+|------|---------|
+| `0` | Safe / below threshold |
+| `1` | Risk meets or exceeds `--fail-on` threshold |
+| `2` | Parse or I/O error |
+| `3` | Guard runtime error |
+| `4` | Blocked by guard |
+
+---
+
+## FAQ
+
+**Q: Does this work with my ORM?**
+A: Yes. SchemaRisk analyzes raw SQL. Works with Prisma, Rails, Django, Diesel, or any tool that generates SQL migrations.
+
+**Q: How accurate is the lock duration estimate?**
+A: It's a heuristic based on table size. For precise estimates, use `--table-rows users:5000000` or connect to your database with `--db-url`.
+
+**Q: Can I run this in my CI pipeline?**
+A: Yes. That's the primary use case. Use `--fail-on high` to block PRs with dangerous migrations.
+
+**Q: What about MySQL/SQLite?**
+A: Currently PostgreSQL only. The locking and DDL behavior is Postgres-specific.
+
+---
+
+## Contributing
+
+```bash
+git clone https://github.com/Keystones-Lab/Schema-risk
+cd Schema-risk
 cargo test
 cargo clippy -- -D warnings
-cargo fmt --all
 ```
 
 ---
@@ -369,3 +394,13 @@ cargo fmt --all
 ## License
 
 MIT
+
+---
+
+<div align="center">
+
+**Stop dangerous migrations before they reach production.**
+
+[Install Now](#quick-start) • [See Demo](#see-it-in-action) • [Report Issues](https://github.com/Keystones-Lab/Schema-risk/issues)
+
+</div>
