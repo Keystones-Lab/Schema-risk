@@ -307,10 +307,13 @@ fn rule_r02_add_not_null(table: &str, column: &str, data_type: &str, rows: u64) 
             String::new(),
             "-- Step 2: Back-fill outdated rows in batches (avoids long lock)".to_string(),
             format!("-- Run this in a loop until 0 rows are updated:"),
-            format!("UPDATE {table}"),
-            format!("  SET {column} = 'YOUR_REAL_VALUE'"),
+            format!("WITH batch AS ("),
+            format!("  SELECT ctid FROM {table}"),
             format!("  WHERE {column} = 'YOUR_DEFAULT_VALUE'"),
-            format!("  LIMIT 10000;"),
+            format!("  LIMIT 10000"),
+            format!(")"),
+            format!("UPDATE {table} SET {column} = 'YOUR_REAL_VALUE'"),
+            format!("WHERE ctid IN (SELECT ctid FROM batch);"),
             String::new(),
             "-- Step 3: Remove the synthetic default (optional) once all rows are back-filled".to_string(),
             format!("ALTER TABLE {table} ALTER COLUMN {column} DROP DEFAULT;"),
@@ -472,6 +475,26 @@ fn rule_r07_alter_column_type(
     } else {
         String::new()
     };
+
+    // Detect safe type conversions (metadata-only on PG9.2+)
+    let upper_type = new_type.to_uppercase();
+    let is_varchar_expansion = upper_type.starts_with("VARCHAR")
+        || upper_type.starts_with("CHARACTER VARYING")
+        || upper_type == "TEXT";
+    let is_numeric_precision_increase =
+        upper_type.starts_with("NUMERIC") || upper_type.starts_with("DECIMAL");
+
+    // If this is a potentially safe conversion, note it
+    let safe_conversion_note = if is_varchar_expansion {
+        " Note: Increasing VARCHAR length or converting to TEXT is metadata-only on PG9.2+ \
+         — no table rewrite required in that case."
+    } else if is_numeric_precision_increase {
+        " Note: Increasing NUMERIC precision is safe. Decreasing precision or scale requires \
+         a full table rewrite."
+    } else {
+        ""
+    };
+
     FixSuggestion {
         rule_id: "R07".to_string(),
         title: format!(
@@ -481,8 +504,8 @@ fn rule_r07_alter_column_type(
             "Changing the type of column '{column}' in '{table}'{rows_clause} causes \
              PostgreSQL to rewrite the entire table while holding an ACCESS EXCLUSIVE \
              lock. All reads and writes are blocked for the entire duration. For \
-             large tables this can mean minutes of downtime. Use the shadow-column \
-             pattern to perform the type change online."
+             large tables this can mean minutes of downtime.{safe_conversion_note} \
+             Use the shadow-column pattern to perform the type change online."
         ),
         fixed_sql: None,
         migration_steps: Some(vec![
@@ -491,10 +514,14 @@ fn rule_r07_alter_column_type(
             String::new(),
             format!("-- Step 2: Back-fill in batches (prevents long lock)"),
             format!("-- Run in a loop until UPDATE returns 0 rows:"),
+            format!("WITH batch AS ("),
+            format!("  SELECT ctid FROM {table}"),
+            format!("  WHERE {column} IS NOT NULL AND {column}_v2 IS NULL"),
+            format!("  LIMIT 10000"),
+            format!(")"),
             format!("UPDATE {table}"),
             format!("  SET {column}_v2 = {column}::{new_type}"),
-            format!("  WHERE {column}_v2 IS NULL"),
-            format!("  LIMIT 10000;"),
+            format!("WHERE ctid IN (SELECT ctid FROM batch);"),
             String::new(),
             format!("-- Step 3: Deploy app to write to both columns"),
             String::new(),
@@ -539,25 +566,34 @@ fn rule_r09_add_column_default(
              value without rewriting the table — the default is stored in the system catalog \
              and applied on-the-fly at query time. On PostgreSQL 10 and below, adding a column \
              with ANY default requires a full table rewrite{rows_note} holding ACCESS EXCLUSIVE \
-             lock. Always run 'SELECT version()' to confirm your PostgreSQL version. \
+             lock. Note: Volatile defaults like now() or random() still require a table rewrite \
+             even on PG11+. Always run 'SELECT version()' to confirm your PostgreSQL version. \
              Pass --pg-version to SchemaRisk to get accurate risk scores."
         ),
         fixed_sql: None,
         migration_steps: Some(vec![
-            format!("-- If you are on PostgreSQL 11+ (recommended):"),
+            format!("-- If you are on PostgreSQL 11+ with a CONSTANT default:"),
             format!("-- This is already safe — no changes needed."),
             format!("ALTER TABLE {table}"),
-            format!("  ADD COLUMN {column} {data_type} DEFAULT <your_value>;"),
+            format!("  ADD COLUMN {column} {data_type} DEFAULT <your_constant_value>;"),
+            String::new(),
+            format!(
+                "-- ⚠ WARNING: Volatile defaults (now(), random(), etc.) still rewrite the table!"
+            ),
             String::new(),
             format!("-- ── If you are on PostgreSQL 10 or below ────────────────────"),
             format!("-- Step 1: Add column as nullable (no default, no rewrite)"),
             format!("ALTER TABLE {table} ADD COLUMN {column} {data_type};"),
             String::new(),
             format!("-- Step 2: Back-fill in batches during low-traffic window"),
-            format!("UPDATE {table}"),
-            format!("  SET {column} = <your_value>"),
+            format!("-- Run in a loop until 0 rows are updated:"),
+            format!("WITH batch AS ("),
+            format!("  SELECT ctid FROM {table}"),
             format!("  WHERE {column} IS NULL"),
-            format!("  LIMIT 10000;"),
+            format!("  LIMIT 10000"),
+            format!(")"),
+            format!("UPDATE {table} SET {column} = <your_value>"),
+            format!("WHERE ctid IN (SELECT ctid FROM batch);"),
             String::new(),
             format!("-- Step 3: Set NOT NULL constraint after back-fill is complete"),
             format!("ALTER TABLE {table} ALTER COLUMN {column} SET NOT NULL;"),
