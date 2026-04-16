@@ -13,6 +13,7 @@ use crate::db::LiveSchema;
 use crate::graph::SchemaGraph;
 use crate::types::RiskLevel;
 use serde::{Deserialize, Serialize};
+use std::collections::{HashMap, HashSet};
 
 // ─────────────────────────────────────────────
 // Drift finding types
@@ -159,12 +160,44 @@ pub fn diff(migration_graph: &SchemaGraph, live: &LiveSchema) -> DriftReport {
     let migration_tables: Vec<String> = migration_graph.all_tables();
     let database_tables: Vec<String> = live.tables.keys().cloned().collect();
 
+    // Case-insensitive table lookup maps (lowercase name -> canonical name)
+    let migration_table_lookup: HashMap<String, String> = migration_tables
+        .iter()
+        .map(|t| (t.to_ascii_lowercase(), t.clone()))
+        .collect();
+    let database_table_lookup: HashMap<String, String> = database_tables
+        .iter()
+        .map(|t| (t.to_ascii_lowercase(), t.clone()))
+        .collect();
+
+    let migration_table_set: HashSet<String> = migration_table_lookup.keys().cloned().collect();
+    let database_table_set: HashSet<String> = database_table_lookup.keys().cloned().collect();
+
+    // Precompute migration indexes by table (all lowercase for case-insensitive matching)
+    let mut migration_indexes_by_table: HashMap<String, HashSet<String>> = HashMap::new();
+    for (idx_name, &node) in &migration_graph.index_index {
+        if let crate::graph::SchemaNode::Index { table, .. } = &migration_graph.graph[node] {
+            migration_indexes_by_table
+                .entry(table.to_ascii_lowercase())
+                .or_default()
+                .insert(idx_name.to_ascii_lowercase());
+        }
+    }
+
+    // Precompute live indexes by table (excluding PK indexes)
+    let mut live_indexes_by_table: HashMap<String, HashSet<String>> = HashMap::new();
+    for (idx_name, idx_meta) in &live.indexes {
+        if !idx_meta.is_primary {
+            live_indexes_by_table
+                .entry(idx_meta.table.to_ascii_lowercase())
+                .or_default()
+                .insert(idx_name.to_ascii_lowercase());
+        }
+    }
+
     // Tables in DB but not in migrations
-    for db_table in &database_tables {
-        if !migration_tables
-            .iter()
-            .any(|t| t.eq_ignore_ascii_case(db_table))
-        {
+    for table_key in database_table_set.difference(&migration_table_set) {
+        if let Some(db_table) = database_table_lookup.get(table_key) {
             findings.push(DriftFinding::ExtraTable {
                 table: db_table.clone(),
             });
@@ -172,11 +205,8 @@ pub fn diff(migration_graph: &SchemaGraph, live: &LiveSchema) -> DriftReport {
     }
 
     // Tables in migrations but not in DB
-    for mig_table in &migration_tables {
-        if !database_tables
-            .iter()
-            .any(|t| t.eq_ignore_ascii_case(mig_table))
-        {
+    for table_key in migration_table_set.difference(&database_table_set) {
+        if let Some(mig_table) = migration_table_lookup.get(table_key) {
             findings.push(DriftFinding::MissingTable {
                 table: mig_table.clone(),
             });
@@ -185,27 +215,36 @@ pub fn diff(migration_graph: &SchemaGraph, live: &LiveSchema) -> DriftReport {
 
     // For tables that exist in both, check columns and indexes
     for mig_table in &migration_tables {
-        let live_meta = database_tables
-            .iter()
-            .find(|t| t.eq_ignore_ascii_case(mig_table))
-            .and_then(|t| live.tables.get(t));
+        let Some(db_table_name) = database_table_lookup.get(&mig_table.to_ascii_lowercase()) else {
+            continue;
+        };
+        let live_meta = live.tables.get(db_table_name);
 
         let Some(live_meta) = live_meta else { continue };
 
         // Get migration columns from the graph
-        let mig_column_keys: Vec<String> = migration_graph
+        let mig_column_lookup: HashMap<String, String> = migration_graph
             .column_index
             .keys()
             .filter(|k| k.starts_with(&format!("{}.", mig_table)))
-            .map(|k| k.split('.').nth(1).unwrap_or("").to_string())
+            .map(|k| {
+                let col = k.split('.').nth(1).unwrap_or("").to_string();
+                (col.to_ascii_lowercase(), col)
+            })
             .collect();
 
+        let live_column_lookup: HashMap<String, &crate::db::ColumnMeta> = live_meta
+            .columns
+            .iter()
+            .map(|c| (c.name.to_ascii_lowercase(), c))
+            .collect();
+
+        let mig_column_set: HashSet<String> = mig_column_lookup.keys().cloned().collect();
+        let live_column_set: HashSet<String> = live_column_lookup.keys().cloned().collect();
+
         // Columns in DB but not in migration
-        for live_col in &live_meta.columns {
-            if !mig_column_keys
-                .iter()
-                .any(|c| c.eq_ignore_ascii_case(&live_col.name))
-            {
+        for col_key in live_column_set.difference(&mig_column_set) {
+            if let Some(live_col) = live_column_lookup.get(col_key) {
                 findings.push(DriftFinding::ExtraColumn {
                     table: mig_table.clone(),
                     column: live_col.name.clone(),
@@ -214,21 +253,24 @@ pub fn diff(migration_graph: &SchemaGraph, live: &LiveSchema) -> DriftReport {
         }
 
         // Columns in migration but not in DB
-        for mig_col in &mig_column_keys {
-            let live_col = live_meta
-                .columns
-                .iter()
-                .find(|c| c.name.eq_ignore_ascii_case(mig_col));
-
-            if live_col.is_none() {
+        for col_key in mig_column_set.difference(&live_column_set) {
+            if let Some(mig_col) = mig_column_lookup.get(col_key) {
                 findings.push(DriftFinding::MissingColumn {
                     table: mig_table.clone(),
                     column: mig_col.clone(),
                 });
-                continue;
             }
+        }
 
-            // Check nullable mismatch against graph node
+        // Check nullable mismatch for columns that exist in both
+        for col_key in mig_column_set.intersection(&live_column_set) {
+            let Some(mig_col) = mig_column_lookup.get(col_key) else {
+                continue;
+            };
+            let Some(live_col) = live_column_lookup.get(col_key) else {
+                continue;
+            };
+
             let key = format!("{}.{}", mig_table, mig_col);
             if let Some(&node_idx) = migration_graph.column_index.get(&key) {
                 if let crate::graph::SchemaNode::Column {
@@ -236,7 +278,7 @@ pub fn diff(migration_graph: &SchemaGraph, live: &LiveSchema) -> DriftReport {
                     ..
                 } = &migration_graph.graph[node_idx]
                 {
-                    let db_nullable = live_col.unwrap().is_nullable;
+                    let db_nullable = live_col.is_nullable;
                     if *mig_nullable != db_nullable {
                         findings.push(DriftFinding::NullableMismatch {
                             table: mig_table.clone(),
@@ -250,39 +292,37 @@ pub fn diff(migration_graph: &SchemaGraph, live: &LiveSchema) -> DriftReport {
         }
 
         // Indexes: check DB indexes that don't appear in migration
-        for (idx_name, idx_meta) in &live.indexes {
-            if idx_meta.table.eq_ignore_ascii_case(mig_table)
-                && !idx_meta.is_primary
-                && !migration_graph.index_index.contains_key(idx_name)
+        let table_key = mig_table.to_ascii_lowercase();
+        let live_idx_set = live_indexes_by_table.get(&table_key).cloned().unwrap_or_default();
+        let mig_idx_set = migration_indexes_by_table
+            .get(&table_key)
+            .cloned()
+            .unwrap_or_default();
+
+        for idx_name in live_idx_set.difference(&mig_idx_set) {
+            if let Some(real_idx_name) = live
+                .indexes
+                .keys()
+                .find(|name| name.eq_ignore_ascii_case(idx_name))
             {
                 findings.push(DriftFinding::ExtraIndex {
                     table: mig_table.clone(),
-                    index: idx_name.clone(),
+                    index: real_idx_name.clone(),
                 });
             }
         }
 
         // Indexes in migration but not in DB
-        for (idx_name, &_idx_node) in &migration_graph.index_index {
-            let table_prefix_match = live.indexes.values().any(|i| {
-                i.table.eq_ignore_ascii_case(mig_table) && i.name.eq_ignore_ascii_case(idx_name)
-            });
-
-            if !table_prefix_match {
-                // Check if this index belongs to the current table
-                let migration_idx_node = migration_graph.index_index.get(idx_name);
-                if let Some(&node) = migration_idx_node {
-                    if let crate::graph::SchemaNode::Index { table, .. } =
-                        &migration_graph.graph[node]
-                    {
-                        if table.eq_ignore_ascii_case(mig_table) {
-                            findings.push(DriftFinding::MissingIndex {
-                                table: mig_table.clone(),
-                                index: idx_name.clone(),
-                            });
-                        }
-                    }
-                }
+        for idx_name in mig_idx_set.difference(&live_idx_set) {
+            if let Some(real_idx_name) = migration_graph
+                .index_index
+                .keys()
+                .find(|name| name.eq_ignore_ascii_case(idx_name))
+            {
+                findings.push(DriftFinding::MissingIndex {
+                    table: mig_table.clone(),
+                    index: real_idx_name.clone(),
+                });
             }
         }
     }
