@@ -1,7 +1,7 @@
 <div align="center">
 
 # SchemaRisk
-
+              
 **One bad migration away from production downtime.**
 
 SchemaRisk catches dangerous PostgreSQL migrations before they hit production.
