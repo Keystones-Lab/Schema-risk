@@ -69,7 +69,7 @@ schema-risk analyze migrations/001_add_index.sql
 **30 seconds to install. 1 command to prevent downtime.**
 
 ---
-
+                                  
 ## See It in Action
 
 ```bash
